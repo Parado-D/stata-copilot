@@ -3,14 +3,20 @@
  *
  * The protocol is newline-delimited JSON-RPC 2.0 on stdin/stdout; stdout is
  * therefore reserved for frames and everything diagnostic goes to stderr.
- * Implemented by hand on purpose: `npx stata-copilot` then needs no install
- * step and no transitive dependency the user has to trust.
+ * Implemented by hand on purpose: `git clone` and `node bin/stata-copilot.mjs`
+ * needs no install step and no transitive dependency the user has to trust.
+ *
+ * This module knows the protocol and nothing about Stata: the tool surface is
+ * injected as a registry (see tools/index.mjs).
  */
 
 import { createInterface } from 'node:readline';
-import { EngineError } from './engine.mjs';
 
-export const SERVER_INFO = { name: 'stata-copilot', version: '0.1.0' };
+import { SERVER_INFO } from './version.mjs';
+import { EngineError, errorResult } from './errors.mjs';
+import { silentLogger } from './log.mjs';
+
+export { SERVER_INFO };
 
 const SUPPORTED_PROTOCOLS = ['2024-11-05', '2025-03-26', '2025-06-18'];
 const LATEST_PROTOCOL = SUPPORTED_PROTOCOLS[SUPPORTED_PROTOCOLS.length - 1];
@@ -24,7 +30,7 @@ export const INSTRUCTIONS = `Stata analysis over MCP.
 - Raise timeout for bootstrap/simulation loops; call stata_break if a run hangs.
 - Every run is appended to <cwd>/.stata-copilot/runs.jsonl; stata_history reads it back.`;
 
-export function createServer({ registry }) {
+export function createServer({ registry, log = silentLogger }) {
   return {
     /** @returns {object|null} the response frame, or null for notifications */
     async handle(message) {
@@ -41,7 +47,7 @@ export function createServer({ registry }) {
         return { jsonrpc: '2.0', id, result };
       } catch (err) {
         if (isNotification) {
-          process.stderr.write(`[stata-copilot] notification error: ${err?.message ?? err}\n`);
+          log.error(`notification error: ${err?.message ?? err}`);
           return null;
         }
         if (err instanceof RpcError) return errorResponse(id, err.code, err.message, err.data);
@@ -70,22 +76,15 @@ export function createServer({ registry }) {
       case 'tools/call': {
         const { name, arguments: args } = params;
         if (!name) throw new RpcError(-32602, 'tools/call requires `name`');
+        log.debug(`tools/call ${name}`);
         try {
           const out = await registry.call(name, args ?? {});
           const content = Array.isArray(out?.content) ? out.content : [{ type: 'text', text: String(out ?? '') }];
           return out?.isError ? { content, isError: true } : { content };
         } catch (err) {
-          if (err instanceof EngineError) {
-            return {
-              isError: true,
-              content: [
-                {
-                  type: 'text',
-                  text: JSON.stringify({ error: { code: err.code, message: err.message, details: err.details } }, null, 2),
-                },
-              ],
-            };
-          }
+          // A tool failure is a result, not a protocol error: the agent must be
+          // able to read the code and correct itself.
+          if (err instanceof EngineError) return errorResult(err);
           throw err;
         }
       }
@@ -118,7 +117,7 @@ function errorResponse(id, code, message, data) {
 }
 
 /** Wire the server to stdin/stdout and run until the client closes the pipe. */
-export function serveStdio(server, { onExit } = {}) {
+export function serveStdio(server, { onExit, log = silentLogger } = {}) {
   const rl = createInterface({ input: process.stdin });
   let pending = Promise.resolve();
 
@@ -143,7 +142,7 @@ export function serveStdio(server, { onExit } = {}) {
         if (reply) write(reply);
       })
       .catch((err) => {
-        process.stderr.write(`[stata-copilot] fatal: ${err?.stack ?? err}\n`);
+        log.error(`fatal: ${err?.stack ?? err}`);
         write(errorResponse(message?.id ?? null, -32603, `Internal error: ${err?.message ?? String(err)}`));
       });
   });

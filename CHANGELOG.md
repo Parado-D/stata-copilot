@@ -6,6 +6,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), version
 
 ## [Unreleased]
 
+### Changed — modular architecture for maintainability
+- Split the monolithic `src/tools.mjs`, `src/engine.mjs` and `src/parse.mjs` into layers with one
+  reason to change each: `server.mjs` (protocol), `tools/*.mjs` (one file per tool),
+  `engines/*` (driver registry), `parsers/*` (pure transcript → numbers), `session.mjs` (the run
+  contract), `policy.mjs` (rules as data), `config.mjs` (flags + env + help from one table),
+  `errors.mjs` (frozen codes), `lib/*` (content and schema helpers).
+- Tool definitions are validated at startup: name pattern, unique name, ≥40-character description,
+  object schema, and a whitelist of schema keywords. A malformed tool now fails the boot, not the
+  first agent call.
+- Arguments are validated against each tool's `inputSchema` before the handler runs
+  (`INVALID_ARGS` with a list of problems, instead of a type error inside Stata code).
+- Engines are registered drivers with a startup contract check (`status`/`execute`/`break`);
+  adding a backend no longer means editing tool code.
+- Policy rules are data (`RULES`, `WARNINGS`) with stable ids; `statements()` strips
+  `capture`/`quietly`/`noisily` prefixes before matching.
+- Version is read from `package.json` once and used by both `serverInfo` and `--help`.
+
+### Added
+- `--doctor`: one JSON report — config, engine reachability, Stata build, licence, tool inventory —
+  with a non-zero exit when the service is down.
+- `--driver`, `--log-level`, `STATA_COPILOT_TIMEOUT`, `STATA_COPILOT_MAX_OUTPUT`,
+  `STATA_COPILOT_NO_LEDGER`; `--flag=value` form; unknown flags are refused.
+- `test/contracts.mjs` (36 checks): module graph, tool definitions, config table, engine
+  registry, error codes, policy modes. `npm test` now runs it before the behavioural suite.
+- `docs/EXTENDING.md` (add a tool / engine / policy rule / parser), `CONTRIBUTING.md`, `SECURITY.md`;
+  README code map and a configuration table generated from the same option declaration as `--help`.
+
 ### Planned
 - `spawn` engine adapter: run Stata without the external HTTP service.
 - `stata_table`: named estimates → `esttab` → CSV/Markdown.

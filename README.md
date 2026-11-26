@@ -140,24 +140,62 @@ analysis rather than a one-off command.
 | Flag | Env | Default |
 |---|---|---|
 | `--endpoint` | `STATA_COPILOT_ENDPOINT` | `http://127.0.0.1:19522` |
+| `--driver` | `STATA_COPILOT_DRIVER` | `http` (the engine adapter) |
 | `--mode` | `STATA_COPILOT_MODE` | `guarded` |
 | `--root` | `STATA_COPILOT_ROOTS` | none (no cwd restriction) |
-| `--timeout` | — | `120` s per call |
-| `--max-output` | — | `20000` chars of transcript |
-| `--no-ledger` | — | ledger on |
+| `--timeout` | `STATA_COPILOT_TIMEOUT` | `120` s per call |
+| `--max-output` | `STATA_COPILOT_MAX_OUTPUT` | `20000` chars of transcript |
+| `--no-ledger` | `STATA_COPILOT_NO_LEDGER` | ledger on |
+| `--log-level` | `STATA_COPILOT_LOG` | `info` (stderr only) |
+
+Flags also accept `--flag=value`. Unknown flags are refused rather than ignored, and every option
+in this table is generated into `--help` from the same declaration (`src/config.mjs`).
+
+### Is my installation working?
+
+```bash
+node bin/stata-copilot.mjs --doctor
+```
+
+prints one JSON object — config, engine reachability, the Stata build the service found, licence
+state, and the tool inventory — and exits non-zero if the service is unreachable. Paste that output
+into a bug report; it answers most "it does not work" questions without a round trip.
+
+## Code map
+
+```
+bin/stata-copilot.mjs   entry: config → engine → registry → serve (and --doctor)
+src/server.mjs          JSON-RPC over stdio; the protocol only, no Stata knowledge
+src/tools/*.mjs         one file per tool; {name, title, description, inputSchema, handler}
+src/tools/index.mjs     registry: definition checks, argument validation, dispatch
+src/session.mjs         gate → execute → truncate → ledger; the run contract lives here once
+src/policy.mjs          safety rules as data (RULES/WARNINGS), modes, cwd allow-list
+src/engines/http.mjs    HTTP adapter for the local service; src/engines/index.mjs registers drivers
+src/parsers/*.mjs       transcripts → numbers (macros, model, profile, distributions)
+src/lib/*.mjs           text/image content helpers, schema validation
+src/config.mjs          flags + env + --help, all from one table
+src/errors.mjs          frozen error codes and the MCP error result shape
+```
+
+Each layer has one job and one reason to change. Adding a tool touches two files; adding an engine
+touches three; neither requires editing the protocol. See `docs/EXTENDING.md` for the recipes.
 
 ## Development
 
 ```bash
-npm test                  # node test/offline.mjs — no Stata needed, 35 assertions
-npm run test:stata        # node test/smoke.mjs — live Stata session, 28 assertions
-node --check src/server.mjs
+npm test                  # contracts (36) + offline (35) — no Stata needed
+npm run test:contracts    # structural checks only: module graph, tool definitions, config
+npm run test:stata        # live Stata session, 28 assertions
+npm run check             # syntax + contracts, what pre-commit runs
 ```
 
-`npm test` is the CI gate: parsers, policy rules, JSON-RPC framing and tool contracts, all against
-recorded transcripts and a stub engine. `npm run test:stata` is the contract that matters: protocol
-handshake, tool inventory, real regression coefficients matched against Stata's own output, policy
-refusal, image attachment, ledger.
+`npm test` is the CI gate: every module must import, every tool definition must validate, every
+config flag must appear in `--help`, the registry must still reject bad arguments, and the parsers,
+policy rules and JSON-RPC framing must all pass against recorded transcripts and a stub engine.
+`npm run test:stata` is the contract that matters: protocol handshake, tool inventory, real
+regression coefficients matched against Stata's own output, policy refusal, image attachment,
+ledger.
+
 
 ## Roadmap
 

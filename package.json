@@ -9,6 +9,7 @@
     "econometrics",
     "replication",
     "claude-code",
+    "codex",
     "ai-agent"
   ],
   "license": "MIT",
@@ -18,11 +19,24 @@
     "stata-copilot": "bin/stata-copilot.mjs"
   },
   "main": "src/server.mjs",
+  "exports": {
+    ".": "./src/server.mjs",
+    "./tools": "./src/tools/index.mjs",
+    "./parsers": "./src/parsers/index.mjs",
+    "./policy": "./src/policy.mjs",
+    "./config": "./src/config.mjs",
+    "./package.json": "./package.json"
+  },
   "files": [
     "bin/",
     "src/",
     "skills/",
+    "docs/",
+    "test/",
     "README.md",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
     "LICENSE"
   ],
   "engines": {
@@ -30,12 +44,17 @@
   },
   "scripts": {
     "start": "node bin/stata-copilot.mjs",
-    "test": "node test/offline.mjs",
+    "test": "node test/contracts.mjs && node test/offline.mjs",
+    "test:contracts": "node test/contracts.mjs",
     "test:stata": "node test/smoke.mjs",
-    "check": "node --check src/server.mjs && node --check src/engine.mjs && node --check src/tools.mjs && node --check src/parse.mjs && node --check src/policy.mjs"
+    "check": "node --check bin/stata-copilot.mjs && node test/contracts.mjs"
   },
   "repository": {
     "type": "git",
     "url": "https://github.com/paradox/stata-copilot.git"
-  }
+  },
+  "bugs": {
+    "url": "https://github.com/paradox/stata-copilot/issues"
+  },
+  "homepage": "https://github.com/paradox/stata-copilot#readme"
 }

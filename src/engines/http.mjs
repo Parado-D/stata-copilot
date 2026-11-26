@@ -1,7 +1,7 @@
 /**
- * Engine adapter: talks to a `stata-ai-skill` HTTP service (default port 19522).
+ * HTTP engine: drives a `stata-ai-skill` service (default port 19522).
  *
- * The service owns the live Stata session (start, license, break, graph
+ * The service owns the live Stata session (start, licence, break, graph
  * capture). This module only speaks its stable HTTP contract:
  *
  *   GET  /status            -> session / Stata / config state
@@ -11,25 +11,16 @@
  *   POST /break             -> interrupt a running command
  *   POST /shutdown          -> stop the background service
  *
- * Keeping the engine behind this interface is what lets the MCP surface stay
- * stable when the execution backend changes (HTTP service today, a Mac/Linux
- * native session or a remote node later).
+ * It implements the Engine contract documented in ./index.mjs.
  */
 
+import { EngineError } from '../errors.mjs';
+
 export const DEFAULT_ENDPOINT = 'http://127.0.0.1:19522';
+export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 
-/** A failure the agent can act on, with a stable machine-readable code. */
-export class EngineError extends Error {
-  constructor(code, message, details = {}) {
-    super(message);
-    this.name = 'EngineError';
-    this.code = code;
-    this.details = details;
-  }
-}
-
-export class Engine {
-  constructor({ endpoint = DEFAULT_ENDPOINT, requestTimeoutMs = 30_000 } = {}) {
+export class HttpEngine {
+  constructor({ endpoint = DEFAULT_ENDPOINT, requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS } = {}) {
     this.endpoint = String(endpoint).replace(/\/+$/, '');
     this.requestTimeoutMs = requestTimeoutMs;
   }
@@ -44,7 +35,7 @@ export class Engine {
     const delays = [0, 150, 400];
     let lastError;
     for (const delay of delays) {
-      if (delay) await new Promise((r) => setTimeout(r, delay));
+      if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
       try {
         return await this.#request(path, { method: 'GET', timeoutMs });
       } catch (err) {
@@ -68,24 +59,24 @@ export class Engine {
         body: body === undefined ? undefined : JSON.stringify(body),
         signal: controller.signal,
       });
-      const text = await res.text();
+      const raw = await res.text();
       if (res.status === 408) {
         throw new EngineError('TIMEOUT', 'Stata is still running the command (HTTP 408). Call stata_break, then retry with a larger timeout.', {
           httpStatus: 408,
-          body: text.slice(0, 2000),
+          body: raw.slice(0, 2000),
         });
       }
       let json;
       try {
-        json = text ? JSON.parse(text) : {};
+        json = raw ? JSON.parse(raw) : {};
       } catch {
         throw new EngineError('BAD_RESPONSE', `Engine returned non-JSON (HTTP ${res.status}).`, {
           httpStatus: res.status,
-          body: text.slice(0, 2000),
+          body: raw.slice(0, 2000),
         });
       }
-      if (!res.ok && res.status !== 408) {
-        const message = json?.error || json?.message || text.slice(0, 500);
+      if (!res.ok) {
+        const message = json?.error || json?.message || raw.slice(0, 500);
         throw new EngineError('HTTP_ERROR', `Engine HTTP ${res.status}: ${message}`, {
           httpStatus: res.status,
           body: json,

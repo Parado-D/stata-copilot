@@ -1,94 +1,140 @@
 #!/usr/bin/env node
 /**
- * stata-copilot — MCP server that turns an agent into a disciplined Stata analyst.
+ * Entry point: parse configuration, build the engine and the tool registry, and
+ * serve MCP over stdio.
  *
- * Usage
- *   stata-copilot [--endpoint URL] [--mode guarded|readonly|open]
- *                 [--root DIR ...] [--timeout SECONDS] [--max-output CHARS]
- *                 [--no-ledger] [--version] [--help]
+ *   node bin/stata-copilot.mjs                 # serve
+ *   node bin/stata-copilot.mjs --doctor        # JSON diagnostic, no server
+ *   node bin/stata-copilot.mjs --help
  *
- * Environment
- *   STATA_COPILOT_ENDPOINT   engine base URL (default http://127.0.0.1:19522)
- *   STATA_COPILOT_MODE       open | guarded | readonly (default guarded)
- *   STATA_COPILOT_ROOTS      path-separated list of allowed working directories
+ * Nothing is written to stdout except MCP frames; diagnostics go to stderr.
  */
 
+import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { Engine } from '../src/engine.mjs';
-import { createTools } from '../src/tools.mjs';
-import { createServer, serveStdio, SERVER_INFO } from '../src/server.mjs';
-import { MODES } from '../src/policy.mjs';
 
-const HELP = `stata-copilot ${SERVER_INFO.version} — MCP server for Stata analysis
+import { PACKAGE_NAME, VERSION, SERVER_INFO } from '../src/version.mjs';
+import { parseConfig, helpText, ConfigError } from '../src/config.mjs';
+import { createEngine } from '../src/engines/index.mjs';
+import { createTools } from '../src/tools/index.mjs';
+import { createServer, serveStdio } from '../src/server.mjs';
+import { createLogger } from '../src/log.mjs';
 
-Options
-  --endpoint <url>     Stata AI Skill service (default $STATA_COPILOT_ENDPOINT or http://127.0.0.1:19522)
-  --mode <mode>        open | guarded | readonly (default guarded)
-  --root <dir>         Allowed working directory; repeatable. Defaults to $STATA_COPILOT_ROOTS
-  --timeout <seconds>  Default Stata timeout (default 120)
-  --max-output <n>     Max transcript characters returned per call (default 20000)
-  --no-ledger          Do not append .stata-copilot/runs.jsonl under the run cwd
-  --version            Print version
-  --help               Print this help
+const HERE = path.dirname(fileURLToPath(import.meta.url));
 
-The server speaks MCP over stdio. Configure it in your client, e.g.
-  { "mcpServers": { "stata": { "command": "npx", "args": ["-y", "stata-copilot"] } } }
-`;
-
-function parseArgs(argv) {
-  const opts = {
-    endpoint: process.env.STATA_COPILOT_ENDPOINT || 'http://127.0.0.1:19522',
-    mode: process.env.STATA_COPILOT_MODE || 'guarded',
-    roots: process.env.STATA_COPILOT_ROOTS ? process.env.STATA_COPILOT_ROOTS.split(path.delimiter).filter(Boolean) : [],
-    timeout: 120,
-    maxOutput: 20_000,
-    persistLedger: true,
-  };
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-    const next = () => {
-      const v = argv[++i];
-      if (v === undefined) throw new Error(`Missing value for ${arg}`);
-      return v;
-    };
-    switch (arg) {
-      case '--endpoint': opts.endpoint = next(); break;
-      case '--mode': opts.mode = next(); break;
-      case '--root': opts.roots.push(next()); break;
-      case '--timeout': opts.timeout = Number(next()); break;
-      case '--max-output': opts.maxOutput = Number(next()); break;
-      case '--no-ledger': opts.persistLedger = false; break;
-      case '--version': console.log(SERVER_INFO.version); process.exit(0); break;
-      case '--help': case '-h': console.log(HELP); process.exit(0); break;
-      default:
-        if (arg.startsWith('-')) {
-          process.stderr.write(`[stata-copilot] unknown option: ${arg}\n`);
-          process.exit(2);
-        }
+async function main(argv) {
+  let parsed;
+  try {
+    parsed = parseConfig(argv);
+  } catch (err) {
+    if (err instanceof ConfigError) {
+      process.stderr.write(`${PACKAGE_NAME}: ${err.message}\n`);
+      return 2;
     }
+    throw err;
   }
-  if (!MODES.includes(opts.mode)) {
-    process.stderr.write(`[stata-copilot] unknown mode "${opts.mode}" (use ${MODES.join('|')})\n`);
-    process.exit(2);
+
+  const { action, config } = parsed;
+  if (action === 'help') {
+    process.stdout.write(helpText({ name: PACKAGE_NAME, version: VERSION }));
+    return 0;
   }
-  return opts;
+  if (action === 'version') {
+    process.stdout.write(`${PACKAGE_NAME} ${VERSION}\n`);
+    return 0;
+  }
+
+  const log = createLogger({ level: action === 'doctor' ? 'error' : config.logLevel });
+  log.info(`${PACKAGE_NAME} ${VERSION} (${action}) endpoint=${config.endpoint} mode=${config.mode}`);
+
+  let engine;
+  try {
+    engine = createEngine({ driver: config.driver, endpoint: config.endpoint });
+  } catch (err) {
+    log.error(`cannot create engine: ${err.message}`);
+    return 2;
+  }
+
+  if (action === 'doctor') {
+    const report = await diagnose({ engine, config });
+    process.stdout.write(JSON.stringify(report, null, 2) + '\n');
+    return report.reachable ? 0 : 1;
+  }
+
+  const registry = createTools({ ...config, engine, log });
+  const server = createServer({ registry, log });
+  log.info('serving MCP over stdio');
+  serveStdio(server, { log, onExit: () => log.info('stdio closed, exiting') });
+  return null; // the process stays alive until the client closes the pipe
 }
 
-const opts = parseArgs(process.argv.slice(2));
-const engine = new Engine({ endpoint: opts.endpoint });
-const registry = createTools({
-  engine,
-  mode: opts.mode,
-  roots: opts.roots,
-  defaultTimeout: opts.timeout,
-  maxOutputChars: opts.maxOutput,
-  persistLedger: opts.persistLedger,
-});
-const server = createServer({ registry });
+/** `--doctor`: one JSON object explaining this installation, never throws. */
+async function diagnose({ engine, config }) {
+  const report = {
+    name: PACKAGE_NAME,
+    version: VERSION,
+    serverInfo: SERVER_INFO,
+    entry: path.join(HERE, 'stata-copilot.mjs'),
+    node: process.version,
+    platform: `${process.platform}/${process.arch}`,
+    config: {
+      endpoint: config.endpoint,
+      driver: config.driver,
+      mode: config.mode,
+      roots: config.roots,
+      defaultTimeout: config.defaultTimeout,
+      maxOutputChars: config.maxOutputChars,
+      persistLedger: config.persistLedger,
+    },
+    reachable: false,
+    service: null,
+    tools: null,
+    hint: null,
+  };
 
-process.stderr.write(
-  `[stata-copilot] v${SERVER_INFO.version} ready — engine ${opts.endpoint}, mode ${opts.mode}` +
-    `${opts.roots.length ? `, roots ${opts.roots.join(',')}` : ''}\n`,
-);
+  try {
+    const status = await engine.status();
+    report.reachable = true;
+    report.service = {
+      status: status.status ?? null,
+      skillVersion: status.skillVersion ?? null,
+      sessionActive: status.sessionActive ?? null,
+      busy: status.busy ?? null,
+      stataPath: status.config?.stataPath ?? null,
+      stataVersion: status.recommendedCandidate?.version ?? null,
+      edition: status.recommendedCandidate?.edition ?? null,
+      licenseFound: status.licenseFound ?? null,
+      setupPhase: status.setup?.phase ?? null,
+      capabilities: status.capabilities ?? null,
+    };
+  } catch (err) {
+    report.service = { error: err.message, code: err.code ?? 'UNKNOWN' };
+    report.hint = err.code === 'OFFLINE'
+      ? 'Start the Stata AI Skill service (it exposes http://127.0.0.1:19522), then retry, or pass --endpoint.'
+      : null;
+  }
 
-serveStdio(server);
+  try {
+    const registry = createTools({ ...config, engine });
+    report.tools = registry.definitions.map((tool) => tool.name);
+  } catch (err) {
+    report.tools = { error: err.message };
+  }
+
+  return report;
+}
+
+/** Only start the process when invoked as a program, not when a test imports it. */
+const invokedDirectly = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (invokedDirectly) {
+  main(process.argv.slice(2)).then(
+    (code) => {
+      if (typeof code === 'number') process.exit(code);
+    },
+    (err) => {
+      process.stderr.write(`${PACKAGE_NAME}: fatal: ${err?.stack ?? err}\n`);
+      process.exit(1);
+    },
+  );
+}

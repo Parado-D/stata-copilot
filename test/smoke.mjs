@@ -42,6 +42,14 @@ class Client {
     this.proc.stderr.on('data', (d) => {
       this.stderr += d.toString();
     });
+    // A crashed child would otherwise leave every request waiting for its timer.
+    this.proc.on('exit', (code) => {
+      const tail = this.stderr.trim().split(/\r?\n/).slice(-8).join(' | ');
+      for (const [, resolver] of this.pending) {
+        resolver({ error: { message: `server exited with code ${code}: ${tail}` } });
+      }
+      this.pending.clear();
+    });
     let buffer = '';
     this.proc.stdout.on('data', (chunk) => {
       buffer += chunk.toString();
@@ -73,7 +81,7 @@ class Client {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`timeout waiting for ${method}`));
-      }, 180_000);
+      }, 30_000);
       this.pending.set(id, (reply) => {
         clearTimeout(timer);
         if (reply.error) reject(new Error(`${method}: ${reply.error.message}`));

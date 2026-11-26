@@ -8,9 +8,9 @@
  */
 
 import { createServer } from '../src/server.mjs';
-import { createTools } from '../src/tools.mjs';
+import { createTools } from '../src/tools/index.mjs';
 import { checkPolicy } from '../src/policy.mjs';
-import { parseMacroList, parseCoefficientRows, parseProfileRows, studentTwoSidedP } from '../src/parse.mjs';
+import { parseMacroList, parseCoefficientRows, parseProfileRows, studentTwoSidedP } from '../src/parsers/index.mjs';
 
 let passed = 0;
 const failures = [];
