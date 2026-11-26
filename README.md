@@ -25,21 +25,35 @@ nothing fails silently.
 
 ## Install
 
-Any MCP client works. Add the server to its configuration:
+### 1. Get the code
+
+```bash
+git clone https://github.com/<you>/stata-copilot.git
+cd stata-copilot
+npm link        # optional: puts `stata-copilot` on PATH; there is nothing to install
+```
+
+There are no dependencies, so there is no `npm install` step and nothing to audit. Node ≥ 18.17 is
+enough. (Publishing to npm is on the roadmap; until then the git URL is the install source.)
+
+### 2. Register it with your MCP client
 
 **Claude Code** (`.mcp.json` in the project root):
 
 ```json
 {
   "mcpServers": {
-    "stata": { "command": "npx", "args": ["-y", "stata-copilot", "--mode", "guarded"] }
+    "stata": {
+      "command": "node",
+      "args": ["C:/tools/stata-copilot/bin/stata-copilot.mjs", "--mode", "guarded", "--root", "."]
+    }
   }
 }
 ```
 
 **Cursor / Windsurf / Claude Desktop** (`mcpServers` block of the client config) — same entry.
 
-**DeepSeek Harness / any Cordis client** — point it at the same command; or run it directly:
+**DeepSeek Harness / any Cordis client** — same command, or run it directly:
 
 ```bash
 node bin/stata-copilot.mjs --endpoint http://127.0.0.1:19522 --mode guarded --root ~/projects/paper
@@ -48,7 +62,7 @@ node bin/stata-copilot.mjs --endpoint http://127.0.0.1:19522 --mode guarded --ro
 **Codex / other agents** — MCP over stdio is the whole contract:
 
 ```bash
-npx -y stata-copilot            # speaks JSON-RPC on stdin/stdout
+stata-copilot --mode guarded    # after npm link; speaks JSON-RPC on stdin/stdout
 ```
 
 ## Tools
@@ -163,7 +177,11 @@ session. This project is the agent-facing layer: structure, safety, ledger, and 
 ## 中文速用
 
 ```json
-{ "mcpServers": { "stata": { "command": "npx", "args": ["-y", "stata-copilot"] } } }
+{
+  "mcpServers": {
+    "stata": { "command": "node", "args": ["C:/tools/stata-copilot/bin/stata-copilot.mjs"] }
+  }
+}
 ```
 
 - 先 `stata_status` 看会话是否就绪；`stata_profile_data` 摸清变量与缺失。
