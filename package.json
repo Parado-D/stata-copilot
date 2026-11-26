@@ -32,6 +32,7 @@
     "src/",
     "skills/",
     "docs/",
+    "examples/",
     "test/",
     "README.md",
     "CHANGELOG.md",
@@ -47,6 +48,7 @@
     "test": "node test/contracts.mjs && node test/offline.mjs",
     "test:contracts": "node test/contracts.mjs",
     "test:stata": "node test/smoke.mjs",
+    "demo": "node examples/real-analysis/run.mjs",
     "check": "node --check bin/stata-copilot.mjs && node test/contracts.mjs"
   },
   "repository": {

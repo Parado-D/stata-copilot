@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), version
 
 ## [Unreleased]
 
+### Examples: a wire-level client and a real analysis
+
+- `examples/mcp-client.mjs` — a ~120-line MCP stdio client that speaks the same JSON-RPC an agent host does, so the repository can demonstrate and test the client half of the contract.
+- `examples/real-analysis/run.mjs` — a complete analysis on Stata's `auto` data (profile → summarize → OLS → robust OLS → graph → ledger) that writes `report.md`, `estimates.json` and a PNG from the `stata_model` payloads.
+- `examples/mcp-config.json` and `examples/dsh.cordis.yml` — copy-paste wiring for `mcpServers` clients and for DeepSeek Harness.
+
 ### Changed — modular architecture for maintainability
 - Split the monolithic `src/tools.mjs`, `src/engine.mjs` and `src/parse.mjs` into layers with one
   reason to change each: `server.mjs` (protocol), `tools/*.mjs` (one file per tool),

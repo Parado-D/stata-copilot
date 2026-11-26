@@ -67,6 +67,22 @@ node bin/stata-copilot.mjs --endpoint http://127.0.0.1:19522 --mode guarded --ro
 stata-copilot --mode guarded    # after npm link; speaks JSON-RPC on stdin/stdout
 ```
 
+Copy-paste versions of both configs are in [`examples/`](examples/): `mcp-config.json` for the
+`mcpServers` clients and `dsh.cordis.yml` for DeepSeek Harness (`dsh web --patch ...`).
+
+### 3. Prove it works, with or without an agent
+
+`examples/real-analysis/run.mjs` is a minimal MCP client — the same protocol an agent host
+speaks. It runs a complete analysis on Stata's `auto` data (profile → summarize → regress →
+robust regress → graph → ledger) and writes `report.md`, `estimates.json` and a PNG:
+
+```bash
+node examples/real-analysis/run.mjs          # requires the stata-ai-skill service
+```
+
+If that command prints coefficients and writes the report, the server half is fine and any
+remaining problem is in the client wiring.
+
 ## Tools
 
 | Tool | What it is for |

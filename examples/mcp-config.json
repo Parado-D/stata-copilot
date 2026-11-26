@@ -1,0 +1,23 @@
+{
+  "_comment": "Generic MCP client configuration. Claude Code reads .mcp.json; Cursor, Windsurf and Claude Desktop use the same mcpServers block in their own settings file. Replace the two paths with your clone and project directory.",
+  "mcpServers": {
+    "stata": {
+      "command": "node",
+      "args": [
+        "C:/tools/stata-copilot/bin/stata-copilot.mjs",
+        "--mode",
+        "guarded",
+        "--root",
+        "C:/projects/paper",
+        "--driver",
+        "http",
+        "--endpoint",
+        "http://127.0.0.1:19522"
+      ],
+      "env": {
+        "STATA_COPILOT_MODE": "guarded",
+        "STATA_COPILOT_DEFAULT_TIMEOUT": "120"
+      }
+    }
+  }
+}

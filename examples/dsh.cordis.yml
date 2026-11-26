@@ -1,0 +1,31 @@
+# Connect stata-copilot to DeepSeek Harness.
+#
+#   dsh plugin add @deepseek-ai/dsh-mcp-client     # once per profile
+#   dsh web --patch examples/dsh.cordis.yml
+#
+# The entry is loaded when the Host boots, so the tools appear in a *new* DSH
+# session (`mcp__stata__stata_run` and friends); the Host itself does not need a
+# restart to pick up a session, only to pick up this file. Initial tool
+# discovery is asynchronous — wait for the `mcp__stata__` tools before asking
+# the agent to use them.
+#
+# `command` must be the Node executable, not `node`, when Node is not on PATH
+# (the Windows DSH runtime, for example:
+# C:/Users/<you>/.dsh/dsh-runtimes/dsh-primary-runtime/dependencies/node/bin/node.exe).
+- insert:
+    - id: mcp-stata-copilot
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: stata
+        transport: stdio
+        command: node
+        args:
+          - C:/tools/stata-copilot/bin/stata-copilot.mjs
+          - --mode
+          - guarded
+          - --root
+          - C:/projects/paper
+          - --endpoint
+          - http://127.0.0.1:19522
+        env: {}
+        cwd: !!js process.cwd()
