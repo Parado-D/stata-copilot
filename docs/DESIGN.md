@@ -47,8 +47,8 @@
    生成 replication package 的锚点。
 
 4. **零依赖、纯 stdio。**
-   用户装一个 MCP 服务器最怕两件事：装不上、装上了不敢信。手写 ~200 行 JSON-RPC，`npx` 即用，
-   没有传递依赖要审计。这个决定牺牲了 SDK 的便利，换来"可审计的一屏代码"。
+   用户装一个 MCP 服务器最怕两件事：装不上、装上了不敢信。手写 ~200 行 JSON-RPC，`git clone` 即用
+   （无 `npm install`），没有传递依赖要审计。这个决定牺牲了 SDK 的便利，换来"可审计的一屏代码"。
 
 5. **引擎与工具面解耦。**
    工具面只依赖 `Engine` 接口（`status/execute/break/shutdown`）。今天是 HTTP 服务，
