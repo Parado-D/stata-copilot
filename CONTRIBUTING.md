@@ -6,7 +6,7 @@ Thanks for looking. This project has no build step and no dependencies, so contr
 ## Setup
 
 ```bash
-git clone https://github.com/<you>/stata-copilot.git
+git clone https://github.com/Parado-D/stata-copilot.git
 cd stata-copilot
 npm test              # contracts + offline: no Stata needed
 ```

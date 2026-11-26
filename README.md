@@ -1,5 +1,7 @@
 # stata-copilot
 
+[![ci](https://github.com/Parado-D/stata-copilot/actions/workflows/ci.yml/badge.svg)](https://github.com/Parado-D/stata-copilot/actions/workflows/ci.yml)
+
 **An MCP server and skill pack that turn a coding agent into a disciplined Stata analyst.**
 
 Agents can already type `regress y x` into a terminal. What they cannot do is read Stata's
@@ -28,7 +30,7 @@ nothing fails silently.
 ### 1. Get the code
 
 ```bash
-git clone https://github.com/<you>/stata-copilot.git
+git clone https://github.com/Parado-D/stata-copilot.git
 cd stata-copilot
 npm link        # optional: puts `stata-copilot` on PATH; there is nothing to install
 ```

@@ -51,10 +51,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/paradox/stata-copilot.git"
+    "url": "https://github.com/Parado-D/stata-copilot.git"
   },
   "bugs": {
-    "url": "https://github.com/paradox/stata-copilot/issues"
+    "url": "https://github.com/Parado-D/stata-copilot/issues"
   },
-  "homepage": "https://github.com/paradox/stata-copilot#readme"
+  "homepage": "https://github.com/Parado-D/stata-copilot#readme"
 }
