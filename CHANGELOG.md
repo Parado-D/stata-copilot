@@ -4,6 +4,23 @@ All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0]
+
+### Added — installable as a DeepSeek Harness bundle
+
+- `package.json` declares `dsh.bundle.patch`, so the package can be installed as a DSH plugin
+  instead of being hand-wired into a client config. `cordis.patch.yml` mounts one loader row — the
+  in-box `@deepseek-ai/dsh-mcp-client` bridge — pointing at this package's own bin. Tools then show
+  up as `mcp__stata__*` in every session.
+- The row spawns the server with `process.execPath` plus `ELECTRON_RUN_AS_NODE=1`: the Desktop
+  install runs the Host inside Electron and is not guaranteed to have a standalone `node` on
+  `PATH`. The bin path is resolved from the patch's own `baseUrl`, so nothing is hard-coded.
+- `failOnStartupError: false` + `reconnect`: no Stata installed, or a stopped `stata-ai-skill`
+  service, leaves the tools unavailable instead of breaking profile boot.
+- Six bundle contracts in the structural test: the manifest points at a patch that exists, the patch
+  is published by `files[]`, it names the bridge without importing it, the namespace and bin agree,
+  and the row keeps the inert-safe settings.
+
 ## [Unreleased]
 
 ### Added — background jobs, so long analyses are not capped by the service

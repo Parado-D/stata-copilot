@@ -12,7 +12,9 @@
  */
 
 import { readdir } from 'node:fs/promises';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -119,6 +121,22 @@ check('open mode allows a shell escape', checkPolicy('! dir', { mode: 'open' }).
 check('rules cover shell and destructive verbs', !checkPolicy('shell dir', { mode: 'guarded' }).allowed && !checkPolicy('rmdir x', { mode: 'guarded' }).allowed);
 check('cwd outside roots is refused', checkCwd('D:\\elsewhere', ['C:\\work']).allowed === false);
 check('cwd inside a root is allowed', checkCwd('C:\\work\\proj', ['C:\\work']).allowed === true);
+
+console.log('DSH bundle contracts');
+// A carrier bundle is a manifest field plus one patch file; both must agree, or
+// the GUI installer either ships a package that mounts nothing (silent no-op) or
+// mounts a file that is not published (install fails at load time).
+const patchRel = pkg.dsh?.bundle?.patch;
+check('package declares a bundle patch', typeof patchRel === 'string' && patchRel.length > 0);
+check('bundle patch is shipped by files[]', Array.isArray(pkg.files) && pkg.files.includes('cordis.patch.yml'));
+check('bundle patch exists on disk', patchRel ? existsSync(join(ROOT, patchRel)) : false, patchRel);
+const patch = patchRel ? readFileSync(join(ROOT, patchRel), 'utf8') : '';
+check('patch mounts a loader row', /^- insert:/m.test(patch) && /name:\s*"@deepseek-ai\/dsh-mcp-client"/.test(patch));
+check('patch never imports the in-box bridge', !/from\s+['"]@deepseek-ai\/dsh-mcp-client/.test(patch));
+check('row names the MCP server namespace', /serverName:\s*stata\b/.test(patch));
+check('row starts this package bin', /bin['"],\s*['"]stata-copilot\.mjs/.test(patch));
+check('row ships inert-safe on purpose', /failOnStartupError:\s*false/.test(patch));
+check('bin entry matches the patch', pkg.bin?.['stata-copilot'] === 'bin/stata-copilot.mjs');
 
 console.log('');
 if (failures.length === 0) {

@@ -1,0 +1,73 @@
+# stata-copilot — DSH carrier bundle patch layer
+#
+# This package is a CARRIER bundle: it ships no DSH plugin of its own. It mounts
+# exactly one loader row — an MCP client entry — and that row starts this
+# package's own MCP server as a child process:
+#
+#   stata_job_submit / stata_job_status / ... → mcp__stata__stata_run
+#   (every tool the server registers shows up as mcp__stata__<tool>)
+#
+# `@deepseek-ai/dsh-mcp-client` is the OFFICIAL in-box MCP bridge shipped with
+# DeepSeek Harness. It lives inside app.asar and the loader resolves it from the
+# Desktop install anchor; a third-party package must NOT import it, only name it.
+#
+# WHY `process.execPath` AND `ELECTRON_RUN_AS_NODE`
+# -------------------------------------------------
+# The Desktop install may run the Host inside Electron's main process, and a
+# user is not required to have a standalone `node` on PATH. Electron's binary
+# runs as a plain Node interpreter when ELECTRON_RUN_AS_NODE=1 is set (verified:
+# the DSH executable reports node v24.21.0 with that variable set), so the row
+# spawns the same executable that is already running the Host. On a source
+# checkout `process.execPath` is `node`, where the variable is inert.
+#
+# `baseUrl` is the URL of this file inside the installed package, which is how
+# the bin path below resolves without knowing the install directory.
+#
+# TUNABLE — override this row from your profile's own patch layer:
+#
+#   - id: stata-copilot-mcp
+#     config:
+#       command: 'C:\Program Files\nodejs\node.exe'   # standalone node instead
+#       env:
+#         STATA_COPILOT_ENDPOINT: 'http://127.0.0.1:19522'
+#       cwd: 'D:\projects\my-paper'
+#
+# Other server flags (`--mode readonly`, `--root <dir>`, `--job-timeout <s>`,
+# `--driver`, `--log-level`) are documented in README.md → Configuration; pass
+# them as extra `args` entries.
+- insert:
+    - id: stata-copilot-mcp
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        # Tool namespace: mcp__stata__stata_run, mcp__stata__stata_model, ...
+        serverName: stata
+        transport: stdio
+
+        command: !!js process.execPath
+        args:
+          - !!js process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:path').dirname(process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('stata-copilot/package.json')), 'bin', 'stata-copilot.mjs')
+          - '--mode'
+          - 'guarded'
+
+        env:
+          # Electron-as-Node. Inert when `command` is a standalone node.
+          ELECTRON_RUN_AS_NODE: "1"
+
+        # The Host inherits its own working directory, which is the install
+        # folder — not a sensible default for `use auto.dta`. Start the server in
+        # the user's home; every tool also takes an explicit `cwd`.
+        cwd: !!js process.getBuiltinModule('node:os').homedir()
+
+        # A long `stata_run` is capped at 600 s by the engine, and a heavy
+        # chapter should go through stata_job_submit instead.
+        toolCallTimeoutMs: 900000
+
+        # A missing Stata (or a stopped stata-ai-skill service) must degrade to
+        # "tool unavailable", never to a profile that refuses to boot.
+        failOnStartupError: false
+
+        reconnect:
+          enabled: true
+          initialDelayMs: 500
+          maxDelayMs: 30000
+          maxAttempts: 10

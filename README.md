@@ -27,6 +27,47 @@ nothing fails silently.
 
 ## Install
 
+### DeepSeek Harness: install the bundle, no config file
+
+The package doubles as a DSH carrier bundle (`dsh.bundle.patch` in `package.json`), so it mounts
+its own MCP row instead of asking you to edit a JSON file:
+
+1. **Settings → Plugins → install from source**, paste `https://github.com/Parado-D/stata-copilot`.
+2. Start a new session. The server's tools appear as `mcp__stata__stata_status`,
+   `mcp__stata__stata_run`, …, `mcp__stata__stata_job_submit`. No Host restart is involved —
+   MCP entries are read when a session is created.
+
+Or from a shell, with a local checkout:
+
+```bash
+dsh plugin --profile <profile> add file:/path/to/stata-copilot   # copy
+dsh plugin --profile <profile> add link:/path/to/stata-copilot   # junction, live edits
+```
+
+The mount lives in [`cordis.patch.yml`](cordis.patch.yml). Two details worth knowing:
+
+- The row starts the server with **the DSH executable itself plus `ELECTRON_RUN_AS_NODE=1`**, so a
+  standalone `node` is not required on `PATH`; on a source checkout `process.execPath` is `node`
+  and the variable is inert.
+- `failOnStartupError: false` and a `reconnect` block mean a missing Stata or a stopped
+  `stata-ai-skill` service degrades to "tool unavailable", never to a profile that will not boot.
+
+**The repository is currently private.** A private Git source cannot be installed anonymously —
+pnpm's clone returns 404. Either make the repo public, publish to npm, or install from a local
+path as above. That is the only reason a Git-URL install fails; it is not a package problem.
+
+To tune the mount, override the row from your profile's own patch layer instead of editing the
+package:
+
+```yaml
+- id: stata-copilot-mcp
+  config:
+    cwd: 'D:\papers\my-study'          # default: your home directory
+    env:
+      STATA_COPILOT_MODE: readonly     # open | guarded | readonly
+      STATA_COPILOT_ROOTS: 'D:\papers'
+```
+
 ### 1. Get the code
 
 ```bash
@@ -55,7 +96,9 @@ enough. (Publishing to npm is on the roadmap; until then the git URL is the inst
 
 **Cursor / Windsurf / Claude Desktop** (`mcpServers` block of the client config) — same entry.
 
-**DeepSeek Harness / any Cordis client** — same command, or run it directly:
+**DeepSeek Harness** — use the bundle at the top of this section; nothing is hand-wired. If you
+prefer the file-overlay route, [`examples/dsh.cordis.yml`](examples/dsh.cordis.yml) is the same
+row as a standalone `--patch` file. Any Cordis client can also run the server directly:
 
 ```bash
 node bin/stata-copilot.mjs --endpoint http://127.0.0.1:19522 --mode guarded --root ~/projects/paper
@@ -248,6 +291,7 @@ src/parsers/*.mjs       transcripts → numbers (macros, model, profile, distrib
 src/lib/*.mjs           text/image content helpers, schema validation
 src/config.mjs          flags + env + --help, all from one table
 src/errors.mjs          frozen error codes and the MCP error result shape
+cordis.patch.yml        DSH carrier bundle: mounts the MCP client row for this package
 examples/paper/         numbered chapters (import → clean → describe → model → figures) + driver
 examples/jobs.mjs       the client view of a background job: submit, poll, log, kill, list
 ```
@@ -258,7 +302,7 @@ touches three; neither requires editing the protocol. See `docs/EXTENDING.md` fo
 ## Development
 
 ```bash
-npm test                  # contracts (36) + offline (35) — no Stata needed
+npm test                  # contracts (45) + offline (35) — no Stata needed
 npm run test:contracts    # structural checks only: module graph, tool definitions, config
 npm run test:stata        # live Stata session, 40 assertions
 npm run demo:paper        # the chaptered study, end to end, on the live session

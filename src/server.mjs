@@ -62,6 +62,7 @@ export function createServer({ registry, log = silentLogger }) {
       case 'initialize': {
         const requested = params.protocolVersion;
         const protocolVersion = SUPPORTED_PROTOCOLS.includes(requested) ? requested : LATEST_PROTOCOL;
+        log.debug(`initialize: client=${params.clientInfo?.name ?? 'unknown'} ${params.clientInfo?.version ?? ''} protocol=${protocolVersion}`);
         return {
           protocolVersion,
           capabilities: { tools: { listChanged: false } },
@@ -72,6 +73,7 @@ export function createServer({ registry, log = silentLogger }) {
       case 'ping':
         return {};
       case 'tools/list':
+        log.debug(`tools/list: ${registry.definitions.length} tools`);
         return { tools: registry.definitions };
       case 'tools/call': {
         const { name, arguments: args } = params;
