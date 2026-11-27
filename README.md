@@ -52,9 +52,11 @@ The mount lives in [`cordis.patch.yml`](cordis.patch.yml). Two details worth kno
 - `failOnStartupError: false` and a `reconnect` block mean a missing Stata or a stopped
   `stata-ai-skill` service degrades to "tool unavailable", never to a profile that will not boot.
 
-**The repository is currently private.** A private Git source cannot be installed anonymously —
-pnpm's clone returns 404. Either make the repo public, publish to npm, or install from a local
-path as above. That is the only reason a Git-URL install fails; it is not a package problem.
+**The repository is public**, so the Git URL above installs anonymously — verified: `pnpm add
+https://github.com/Parado-D/stata-copilot` resolves and installs `stata-copilot@0.3.0` in about
+3 s, and the installed copy boots the MCP server from the bundled patch. If you are installing a
+fork you keep private, pnpm's clone has no credentials and returns 404; install that one from a
+local path (`file:` / `link:`) instead.
 
 To tune the mount, override the row from your profile's own patch layer instead of editing the
 package:
