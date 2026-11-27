@@ -6,6 +6,7 @@
 version 18
 clear all
 set more off
+set varabbrev off
 capture log close describe
 
 log using "../output/logs/30-describe.log", replace text name(describe)

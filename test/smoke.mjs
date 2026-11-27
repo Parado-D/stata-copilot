@@ -130,7 +130,7 @@ try {
   console.log('tools/list');
   const list = await client.request('tools/list', {});
   const names = (list.tools ?? []).map((t) => t.name).sort();
-  check('every tool exposed (14)', names.length === 14, names);
+  check('every tool exposed (16)', names.length === 16, names);
   check('every tool has an inputSchema', (list.tools ?? []).every((t) => t.inputSchema?.type === 'object'));
 
   console.log('stata_status');
@@ -161,6 +161,32 @@ try {
   check('mpg p-value computed', typeof mpg?.p === 'number' && mpg.p > 0.5 && mpg.p < 0.6, mpg?.p);
   check('fit reports N=74', model.payload?.fit?.n === 74, model.payload?.fit);
   check('fit reports r2', Math.abs((model.payload?.fit?.r2 ?? 0) - 0.2934) < 1e-3, model.payload?.fit?.r2);
+  check('interval brackets the estimate', mpg?.ciLo < mpg?.b && mpg?.b < mpg?.ciHi, { ciLo: mpg?.ciLo, b: mpg?.b, ciHi: mpg?.ciHi });
+  const halfWidth = ((mpg?.ciHi ?? 0) - (mpg?.ciLo ?? 0)) / 2;
+  const expected = (model.payload?.fit?.crit ?? 0) * (mpg?.se ?? 0);
+  check('interval half-width is crit*se', Math.abs(halfWidth - expected) < 1e-6 * Math.max(1, expected), { halfWidth, expected });
+
+  console.log('collinearity');
+  await client.call('stata_run', { code: 'gen w2 = weight', cwd: workdir });
+  const collinear = await client.call('stata_model', { command: 'regress price w2 weight mpg', cwd: workdir, quiet: true });
+  const omitted = (collinear.payload?.estimates ?? []).find((e) => e.term === 'weight');
+  check('collinear term is marked omitted', omitted?.omitted === true, (collinear.payload?.estimates ?? []).map((e) => e.name));
+  check('fit lists the omitted term', (collinear.payload?.fit?.omitted ?? []).includes('weight'), collinear.payload?.fit);
+
+  console.log('stata_lint');
+  const linted = await client.call('stata_lint', { code: 'gen x = price\ngen x = mpg', cwd: workdir });
+  check('lint blocks a repeated gen', linted.isError === true && linted.payload?.findings?.some((f) => f.rule === 'gen-redefine'), linted.payload?.findings);
+
+  console.log('stata_signature');
+  const sig = await client.call('stata_signature', { cwd: workdir });
+  check('signature reports observations', sig.payload?.observations > 0, sig.payload);
+  const verifySame = await client.call('stata_run', { code: 'quietly replace mpg = mpg', cwd: workdir, verify: true });
+  check('verify: a no-op replace keeps the fingerprint', verifySame.payload?.data?.changed === false, verifySame.payload?.data);
+  const verifyWrite = await client.call('stata_run', { code: 'quietly replace mpg = mpg + 1', cwd: workdir, verify: true });
+  check('verify: a real edit changes the fingerprint', verifyWrite.payload?.data?.changed === true, verifyWrite.payload?.data);
+  // Leave the session on the shipped dataset again: the blocks below assert on
+  // exactly 12 variables.
+  await client.call('stata_run', { code: 'sysuse auto, clear', cwd: workdir });
 
   console.log('stata_profile_data');
   const profile = await client.call('stata_profile_data', { cwd: workdir });

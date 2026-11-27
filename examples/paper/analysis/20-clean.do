@@ -6,6 +6,7 @@
 version 18
 clear all
 set more off
+set varabbrev off
 capture log close clean
 
 log using "../output/logs/20-clean.log", replace text name(clean)

@@ -148,7 +148,9 @@ point: the agent layer must not be the only way to reproduce the paper.
 | `stata_run_do` | Run an existing `.do` file as a file (`do "..."`); `cwd` defaults to its folder. Add `background:true` to get a job id instead of waiting. |
 | `stata_results` | `r()`, `e()`, `s()` macros as JSON. |
 | `stata_profile_data` | Dataset header plus per-variable type, format, label and missing count. |
-| `stata_model` | One estimation command in, a coefficient table and fit statistics out. |
+| `stata_model` | One estimation command in, a coefficient table and fit statistics out: b, se, t/z, p, 95% interval, omitted terms. |
+| `stata_lint` | Static review of Stata code for constructs that run without an error and do the wrong thing. Never executes anything. |
+| `stata_signature` | `datasignature` fingerprint of the loaded data, to prove whether a command changed it. |
 | `stata_graphs` | The PNG a run exported, attached as an image the model can actually see. |
 | `stata_break` | Interrupt a runaway command, then confirm `busy: false`. |
 | `stata_history` | The run ledger. |
@@ -168,10 +170,10 @@ point: the agent layer must not be the only way to reproduce the paper.
   74 obs · 12 vars · make (str18) "Make and model" · price (int) 0 missing …
 
 > stata_model { command: "regress price mpg weight" }
-  mpg    b=-49.512   se=86.156   t=-0.575   p=0.567
-  weight b=  1.747   se= 0.641   t= 2.723   p=0.008
-  _cons  b=1946.069  se=3597.05  t= 0.541   p=0.590
-  fit: n=74  r2=0.293  F=14.74
+  mpg    b=-49.512   se=86.156   t=-0.575   p=0.567   [ -221.30,  122.28 ]
+  weight b=  1.747   se= 0.641   t= 2.723   p=0.008   [    0.47,    3.03 ]
+  _cons  b=1946.069  se=3597.05  t= 0.541   p=0.590   [ -5226.1,  9118.2 ]
+  fit: n=74  r2=0.293  F=14.74  crit=1.99394  omitted=[]
 
 > stata_run { code: "scatter price mpg\ngraph export \"output/fit.png\", replace width(1200)" }
   success · 1 graph → output/fit.png
@@ -215,6 +217,53 @@ next connection it accepts (one `ECONNRESET`, then normal). `stata_job_submit` w
 to answer again before returning, so the calls you make right after a submit do not race that
 hiccup. `node examples/jobs.mjs` shows the whole flow — submit, an interactive call that still gets
 through in ~60 ms, live progress, the verdict, a kill, and the listing.
+
+## Catching the mistakes Stata does not report
+
+Stata is quiet about the worst errors. These are all *valid* programs that run to
+completion and produce a different result from the one intended — the kind an
+agent will happily summarise into a report:
+
+| Construct | What actually happens |
+|---|---|
+| `if foreign { ... }` | the `if` **command** tests observation 1 only; it is not a loop over rows |
+| `gen gap = price - price[_n-1]` with no `sort` first | `_n` follows whatever order the data happen to be in |
+| `gen w = exp(educ)` twice | `r(110) variable w already defined` — this is how a published replication package stops at line 4735 |
+| ``display "`cutoff'"`` in a file that never defines it | the macro expands to an empty string, the command still runs |
+| `missing(a b c)` | `missing()` wants a comma-separated expression list, not a varlist: it silently tests only `a` |
+| `l` meaning `length` | with variable abbreviation on, an unknown name can resolve to another loaded variable |
+
+Two layers answer this. The session starts with `set varabbrev off`, so a name
+Stata cannot resolve is an error instead of a different variable. And
+`stata_lint` reads the code before Stata sees it:
+
+```text
+> stata_lint { file: "analysis/40-model.do" }
+  1 error(s), 2 warning(s), 1 note(s)
+  line 118  error    gen-redefine    `gen wvs` is already defined by line 96; Stata stops with r(110)
+  line  44  warning  if-command      `if foreign` tests observation 1 only, not every observation
+  line  12  warning  sort-order      `_n`-dependent code runs on whatever order the data are in
+  line   1  info     no-varabbrev-guard  this do-file estimates models but never turns abbreviation off
+```
+
+`stata_lint` never executes anything, so it is safe in `readonly` mode and cheap
+enough to run on every draft. Errors mean "Stata will abort"; warnings mean "this
+runs and is probably wrong"; the caller decides whether that is acceptable.
+
+For the data itself there is `stata_signature` — and `verify: true` on
+`stata_run`/`stata_run_do` does the same thing around one call:
+
+```text
+> stata_run { code: "replace mpg = mpg + 1", verify: true }
+  data.before  { observations: 74, dataHashA: 2537987732, sortedby: null }
+  data.after   { observations: 74, dataHashA: 3092844121, sortedby: null }
+  data.changed true
+```
+
+That turns "the cleaning step only recoded labels" from a claim into a
+fingerprint you can quote. Two fingerprints that match mean the data really did
+not change; `sortOrderChanged` covers the case where the values are identical but
+`_n` now means something else.
 
 ## Safety model
 

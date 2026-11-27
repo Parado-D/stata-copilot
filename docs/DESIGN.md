@@ -72,7 +72,7 @@
 ┌───────────────────────────▼──────────────────────────────────┐
 │ stata-copilot（本项目，零依赖 Node ≥18）                       │
 │  server.mjs          协议帧、tools/list、tools/call            │
-│  tools/*.mjs         14 个工具，一文件一工具：结构提取、护栏、台账 │
+│  tools/*.mjs         16 个工具，一文件一工具：结构提取、护栏、台账 │
 │  session.mjs         gate → execute → truncate → ledger        │
 │  jobs.mjs            后台作业：独立 Stata 批处理进程，轮询/杀灭   │
 │  policy.mjs          命令词级策略 + cwd 白名单                   │
@@ -125,7 +125,9 @@
 | `stata_run_do` | `file, cwd?, timeout?, mode?, background?, label?` | 同上 + `file`；`background` 时为 job 记录 |
 | `stata_results` | `scope, cwd?, timeout?` | `macros{r,e,s}, matrices[]` |
 | `stata_profile_data` | `dataset?, cwd?, timeout?` | `dataset{source,observations,variables}, variables[{name,type,format,label,missing}]` |
-| `stata_model` | `command, cwd?, timeout?, quiet?` | `estimates[{equation,name,b,se,t,z,p}], fit{n,k,df_r,r2,r2_a,F,ll,aic,bic,cmdline}` |
+| `stata_model` | `command, cwd?, timeout?, quiet?` | `estimates[{equation,name,term,omitted,b,se,ciLo,ciHi,t,z,p}], fit{n,k,df_r,crit,r2,r2_a,F,ll,aic,bic,cmdline,omitted[]}` |
+| `stata_lint` | `code?, file?, cwd?` | `ok, counts{error,warning,info}, findings[{line,rule,severity,message,hint,text}]` |
+| `stata_signature` | `dataset?, cwd?, timeout?` | `signature, observations, variables, dataHashA, dataHashB, sortedby` |
 | `stata_graphs` | `files?, max?` | image 内容块 + `files[]` |
 | `stata_break` | — | `interrupted, status{busy}` |
 | `stata_history` | `limit?` | `entries[{at,tool,ok,returnCode,ms,cwd,code}]` |
@@ -135,10 +137,18 @@
 | `stata_job_kill` | `jobId, cwd?` | 同 status，`state: "killed"` |
 | `stata_job_list` | `cwd?, limit?` | `jobs[]`（记录在 `<cwd>/.stata-copilot/jobs/*.json`） |
 
-**为什么是 14 个而不是 9 个**：前 9 个对应分析循环里的 9 个动作（看状态 → 摸数据 → 估计 →
+**为什么是 16 个而不是 9 个**：前 9 个对应分析循环里的 9 个动作（看状态 → 摸数据 → 估计 →
 取结果 → 看图 → 中断 → 查痕迹）；新增 5 个全部服务于"长任务"这一种真实场景——提交、查状态、
 看日志、杀灭、列举，少一个就得让代理猜（比如只给 submit 不给 log，代理只能靠 status 的尾巴
-判断进度）。工具面向"动作"，不面向"功能"：这是数量上限的唯一依据。
+判断进度）。v0.4 再加两个，对应"Stata 不报错却算错"这一类失败：`stata_lint` 在命令进入引擎前
+挡下 `if` 命令、`_n` 无排序、重复 `gen`、未定义 local、`missing(a b c)`；`stata_signature`
+把"这次运行有没有动数据"变成一个可引用的指纹（`datasignature`）。工具面向"动作"，不面向
+"功能"：这是数量上限的唯一依据。
+
+**`stata_lint` 的判据来自真实事故**：`l ambiguous abbreviation` 让一个 17 分钟的运行在结尾
+崩掉（`极速版.do` 第 263 行把 `_cons` 误写成 `l`）；`gen wvs = 1 if wvs == .` 让一个复现包在
+88 秒处停下（Stata 18 不再允许 `gen ... if` 改写已有变量）。所以规则表里的每一条都能指向一个
+具体失败，而不是风格偏好。
 
 ---
 

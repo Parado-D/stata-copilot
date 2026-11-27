@@ -12,6 +12,7 @@
 version 18
 clear all
 set more off
+set varabbrev off
 capture log close figures
 
 log using "../output/logs/50-figures.log", replace text name(figures)
@@ -66,5 +67,9 @@ marginsplot, ///
     title("The foreign premium grows with weight") ///
     name(fig4, replace)
 graph export "../output/figures/fig4.png", width(1200) replace
+
+* Same reason as 40-model.do: the interaction above left expanded factor
+* variables in memory. Reload so this chapter's only product is the PNGs.
+use "../output/auto-clean.dta", clear
 
 log close figures

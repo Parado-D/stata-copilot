@@ -21,6 +21,7 @@ export default {
       mode: { type: 'string', enum: MODES, description: 'Tighten the policy for this call.' },
       background: { type: 'boolean', description: 'Run as a background job; returns a job id instead of the transcript.' },
       label: { type: 'string', description: 'Label for the background job.' },
+      verify: { type: 'boolean', description: 'Fingerprint the data before and after (datasignature) and report whether it changed. In-session runs only.' },
     },
     required: ['file'],
     additionalProperties: false,
@@ -60,6 +61,7 @@ export default {
       cwd: args.cwd ?? path.dirname(file),
       timeout: args.timeout ?? 300,
       requestedMode: args.mode,
+      verify: args.verify === true,
     });
     return { content: [text({ file, ...result })] };
   },

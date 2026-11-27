@@ -7,6 +7,7 @@
 version 18
 clear all
 set more off
+set varabbrev off
 capture log close import
 
 log using "../output/logs/10-import.log", replace text name(import)

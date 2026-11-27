@@ -6,6 +6,7 @@
 version 18
 clear all
 set more off
+set varabbrev off
 capture log close model
 
 log using "../output/logs/40-model.log", replace text name(model)
@@ -42,5 +43,11 @@ estimates restore m2
 estimates save "../output/estimates/all", append
 estimates restore m3
 estimates save "../output/estimates/all", append
+
+* Factor notation is not a temporary flourish: `i.foreign##c.w1000` adds the
+* expanded terms to the dataset as ordinary variables, and `estimates restore`
+* brings them back with the snapshot. The chapter's product is the .ster file
+* and the table, not a mutated dataset, so hand the next chapter a clean copy.
+use "../output/auto-clean.dta", clear
 
 log close model

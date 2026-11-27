@@ -13,6 +13,7 @@ export default {
       cwd: { type: 'string', description: 'Working directory applied before the code runs (absolute path).' },
       timeout: { type: 'number', minimum: 1, maximum: 600, description: 'Seconds before Stata is interrupted (1-600, default 120).' },
       mode: { type: 'string', enum: MODES, description: 'Tighten the policy for this call (can only be stricter than the session mode).' },
+      verify: { type: 'boolean', description: 'Fingerprint the data before and after (datasignature) and report whether it changed.' },
     },
     required: ['code'],
     additionalProperties: false,
@@ -24,6 +25,7 @@ export default {
       cwd: args.cwd,
       timeout: args.timeout ?? ctx.session.defaultTimeout,
       requestedMode: args.mode,
+      verify: args.verify === true,
     });
     return { content: [text(result)] };
   },

@@ -61,7 +61,7 @@ const { EngineError, ERROR_CODES, errorResult } = await import(pathToFileURL(pat
 const pkg = JSON.parse(await (await import('node:fs/promises')).readFile(path.join(ROOT, 'package.json'), 'utf8'));
 
 console.log('tool contracts');
-check('every tool module is registered (14)', TOOL_MODULES.length === 14, TOOL_MODULES.map((t) => t.name));
+check('every tool module is registered (16)', TOOL_MODULES.length === 16, TOOL_MODULES.map((t) => t.name));
 const names = TOOL_MODULES.map((t) => t.name);
 check('tool names unique', new Set(names).size === names.length);
 check('names are lower_snake_case', names.every((n) => /^[a-z][a-z0-9_]{2,40}$/.test(n)), names);

@@ -4,6 +4,33 @@ All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0]
+
+### Added — catch the mistakes Stata reports as success
+
+Grounded in *Stata Tips* (Cox, 4th ed.) and in two failures this project hit in the field: a
+`l ambiguous abbreviation` that killed a 17-minute run, and `gen wvs = 1 if wvs == .` that stopped a
+replication package 88 seconds in.
+
+- `stata_lint { code | file }` — static review, no execution, safe in `readonly` mode. Eight rules:
+  `if-command` (tests observation 1 only), `sort-order` (`_n` with no preceding sort), `gen-redefine`
+  (`r(110)`), `undefined-local` (expands to `""`), `missing-varlist` (`missing(a b c)`),
+  `varabbrev-on`, `no-varabbrev-guard`, `do-missing-file`. Errors block, warnings do not.
+- The session now starts with `set varabbrev off` (+ `set more off`) before the first real command,
+  so a name Stata cannot resolve is an error rather than a different variable. The preamble is
+  applied once, retried if the engine is still starting, and skippable with `--no-bootstrap` style
+  wiring (Session option `bootstrap`).
+- `stata_run` and `stata_run_do` accept `verify: true`: the data are fingerprinted with
+  `datasignature` before and after, and the payload carries `data{before, after, changed,
+  sortOrderChanged}`.
+- `stata_signature { dataset? }` — the same fingerprint as a tool, so a report can quote
+  "same data before and after" instead of asserting it.
+- `stata_model` now returns a 95% confidence interval on every coefficient (`ciLo`, `ciHi`) computed
+  in Mata with the model's own critical value (`e(df_r)` → t, otherwise the normal 1.96), reports
+  that critical value as `fit.crit`, and marks coefficients dropped for collinearity
+  (`omitted: true` on the estimate, `fit.omitted: [...]`). The stripe names them `o.<var>`, which
+  is the only surviving trace: `e(omit)` does not exist for `regress`.
+
 ## [0.3.0]
 
 ### Added — installable as a DeepSeek Harness bundle

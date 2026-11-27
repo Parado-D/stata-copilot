@@ -55,8 +55,14 @@ analysis/
 ```
 
 Each file starts with `version 18` (or the session's `c(version)`), `clear all`, `set more off`,
-and a `log using` line into `output/logs/`. Run each with `stata_run_do { file, cwd }` and fix
-errors in the file — not by patching the session ad hoc.
+`set varabbrev off`, and a `log using` line into `output/logs/`. Run each with
+`stata_run_do { file, cwd }` and fix errors in the file — not by patching the session ad hoc.
+
+Before running a file you just wrote, lint it: `stata_lint { file }`. It catches the Stata mistakes
+that run without an error — `if <variable> {` (first observation only), `_n` with no preceding sort,
+`gen` on a variable the file already created, a local that is never defined (expands to `""`),
+`missing(a b c)` treated as a varlist. Fix every `error`, and judge each `warning` on its merits;
+do not run code with an unexplained warning and then report its output as if it were right.
 
 **If a chapter is slow** (imputation, bootstrap, thousands of loops), do not raise the timeout and
 do not split the file to fit a limit: hand it to `stata_job_submit { file, label }`. A job runs in
@@ -77,11 +83,15 @@ the table from named estimates.
 ## Step 4 — estimate with structured results
 
 Use `stata_model { command: "regress y x1 x2, vce(cluster id)" }`.
-It returns `estimates[{name, b, se, t, p}]` and `fit{n, r2, df_r, F}`. Then:
+It returns `estimates[{name, b, se, t, p, ciLo, ciHi, omitted}]` and
+`fit{n, r2, df_r, crit, F, omitted[]}`. Then:
 
 - **Save it**: write the JSON to `output/estimates/<name>.json`. Tables and prose read this file.
 - **Check the fit**: `n` must match the sample you intended; if it shrank, missing values ate rows
   (step 2 should have predicted that).
+- **Check the omitted list**: `fit.omitted` non-empty means those terms were dropped for
+  collinearity. Either fix the specification or say in the text which term was absorbed and why —
+  never present a table that silently lost a variable.
 - **Check the inference**: panel data → `xtset` + `vce(cluster <panel id>)`; stratified/clustered
   sampling → clustered SEs. If neither applies, say so explicitly rather than defaulting silently.
 - **Report with uncertainty**: coefficient, SE, 95% CI, n. Not a bare point estimate.
@@ -108,7 +118,10 @@ Run `stata_history` and compare against the files:
 - [ ] the last run of each do-file succeeded (`ok: true`);
 - [ ] simulations have `set seed`;
 - [ ] no `capture` is hiding a failed step (policy warnings flag these);
-- [ ] the working directory in the ledger is the project, not someone's Desktop.
+- [ ] the working directory in the ledger is the project, not someone's Desktop;
+- [ ] if the cleaning step was supposed to leave the data intact, `stata_run ... , verify: true`
+      (or `stata_signature` before and after) confirms `data.changed: false` — say it only if you
+      have the fingerprints.
 
 If a check fails, fix the do-file and re-run — do not hand-edit an output file.
 

@@ -48,11 +48,24 @@ try {
 
   const ran = [];
   for (const chapter of CHAPTERS) {
+    const file = path.join(HERE, 'analysis', chapter);
+    // Lint first: the whole point is to catch the mistakes Stata would accept
+    // silently, and a chapter is exactly the unit where that matters.
+    const lint = payload(await client.callTool('stata_lint', { file, cwd: path.join(HERE, 'analysis') }));
+    const blocking = (lint.findings ?? []).filter((finding) => finding.severity === 'error');
+    if (blocking.length > 0) {
+      console.error(`\n${chapter} has ${blocking.length} blocking lint error(s):`);
+      for (const finding of blocking) console.error(`  line ${finding.line}  ${finding.rule}  ${finding.message}`);
+      process.exitCode = 1;
+      break;
+    }
+
     const started = Date.now();
     const result = await client.callTool('stata_run_do', {
-      file: path.join(HERE, 'analysis', chapter),
+      file,
       cwd: path.join(HERE, 'analysis'),
       timeout: 300,
+      verify: true,
     });
     const body = payload(result);
     const seconds = ((Date.now() - started) / 1000).toFixed(1);
@@ -61,8 +74,22 @@ try {
       process.exitCode = 1;
       break;
     }
-    ran.push({ chapter, seconds, returnCode: body.returnCode, graphs: body.graphs?.length ?? 0 });
-    console.log(`ok  ${chapter.padEnd(16)} ${seconds}s  rc=${body.returnCode}  graphs=${body.graphs?.length ?? 0}`);
+    const changedLabel =
+      body.data?.changed === true
+        ? 'data changed'
+        : body.data?.changed === false
+          ? 'data unchanged'
+          : 'no baseline';
+    ran.push({
+      chapter,
+      seconds,
+      returnCode: body.returnCode,
+      graphs: body.graphs?.length ?? 0,
+      changed: body.data?.changed ?? null,
+    });
+    console.log(
+      `ok  ${chapter.padEnd(16)} ${seconds}s  rc=${body.returnCode}  graphs=${body.graphs?.length ?? 0}  ${changedLabel}`,
+    );
   }
 
   if (process.exitCode) throw new Error('stopped at the first failing chapter');
@@ -89,9 +116,14 @@ try {
     '',
     '## Chapters',
     '',
-    '| chapter | seconds | return code | graphs |',
-    '| --- | ---: | ---: | ---: |',
-    ...ran.map((row) => `| \`${row.chapter}\` | ${row.seconds} | ${row.returnCode} | ${row.graphs} |`),
+    '| chapter | seconds | return code | graphs | data changed |',
+    '| --- | ---: | ---: | ---: | :---: |',
+    ...ran.map(
+      (row) =>
+        `| \`${row.chapter}\` | ${row.seconds} | ${row.returnCode} | ${row.graphs} | ${
+          row.changed === null ? '—' : row.changed ? 'yes' : 'no'
+        } |`,
+    ),
     '',
     '## Artifacts',
     '',

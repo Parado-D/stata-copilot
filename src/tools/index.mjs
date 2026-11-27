@@ -28,6 +28,8 @@ import model from './model.mjs';
 import graphs from './graphs.mjs';
 import breakTool from './break.mjs';
 import history from './history.mjs';
+import lint from './lint.mjs';
+import signature from './signature.mjs';
 import jobSubmit from './job-submit.mjs';
 import jobStatus from './job-status.mjs';
 import jobLog from './job-log.mjs';
@@ -44,6 +46,8 @@ export const TOOL_MODULES = [
   graphs,
   breakTool,
   history,
+  lint,
+  signature,
   jobSubmit,
   jobStatus,
   jobLog,

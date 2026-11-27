@@ -10,7 +10,14 @@
 import { createServer } from '../src/server.mjs';
 import { createTools } from '../src/tools/index.mjs';
 import { checkPolicy } from '../src/policy.mjs';
-import { parseMacroList, parseCoefficientRows, parseProfileRows, studentTwoSidedP } from '../src/parsers/index.mjs';
+import {
+  parseMacroList,
+  parseCoefficientRows,
+  parseProfileRows,
+  parseSignature,
+  studentTwoSidedP,
+} from '../src/parsers/index.mjs';
+import { lintCode } from '../src/lint.mjs';
 
 let passed = 0;
 const failures = [];
@@ -70,6 +77,12 @@ const stubEngine = {
     };
   },
   async execute({ code }) {
+    if (code.includes('datasignature')) {
+      return {
+        success: true, returnCode: 0, error: '', graphs: [],
+        output: '\n. datasignature\n  74:3(101019):2537987732:2244255684\n\nSORTEDBY=foreign\n',
+      };
+    }
     if (/^ereturn list|^mata:/m.test(code) || code.includes('ereturn list')) {
       return { success: true, returnCode: 0, output: MODEL_TRANSCRIPT, error: '', graphs: [] };
     }
@@ -126,7 +139,7 @@ const unknownProto = await server.handle({ jsonrpc: '2.0', id: 2, method: 'initi
 check('unknown protocol falls back to latest', unknownProto.result.protocolVersion === '2025-06-18');
 
 const list = await server.handle({ jsonrpc: '2.0', id: 3, method: 'tools/list', params: {} });
-check('tools/list returns every tool', list.result.tools.length === 14, list.result.tools.length);
+check('tools/list returns every tool', list.result.tools.length === 16, list.result.tools.length);
 check('every tool has inputSchema', list.result.tools.every((t) => t.inputSchema.type === 'object'));
 
 const notif = await server.handle({ jsonrpc: '2.0', method: 'notifications/initialized' });
@@ -165,6 +178,41 @@ check('a per-call mode cannot loosen the session', tightened.isError === true &&
 
 const unknownTool = await registry.call('nope').catch((e) => e);
 check('unknown tool throws UNKNOWN_TOOL', unknownTool?.code === 'UNKNOWN_TOOL');
+
+console.log('lint');
+const lintIf = lintCode('if foreign {\n    summarize price\n}');
+check('if-command is caught', lintIf.findings.some((f) => f.rule === 'if-command'), lintIf.findings);
+const lintScalarIf = lintCode('regress price mpg\nif r(2) > 10 {\n    display "f"\n}');
+check('if on r() results is not flagged', !lintScalarIf.findings.some((f) => f.rule === 'if-command'), lintScalarIf.findings);
+const lintGen = lintCode('gen w = weight\ngen w = mpg');
+check('gen-redefine is caught', lintGen.findings.some((f) => f.rule === 'gen-redefine'));
+check('gen-redefine blocks (error)', lintGen.ok === false);
+const lintLocal = lintCode('display "`cutoff\'"');
+check('undefined-local is caught', lintLocal.findings.some((f) => f.rule === 'undefined-local'));
+const lintMissing = lintCode('count if missing(price weight)');
+check('missing() varlist is caught', lintMissing.findings.some((f) => f.rule === 'missing-varlist'));
+const lintSort = lintCode('gen gap = price - price[_n-1]');
+check('_n without sort is caught', lintSort.findings.some((f) => f.rule === 'sort-order'));
+const lintClean = lintCode('set varabbrev off\nsort id\ngen gap = price - price[_n-1]\nlocal tag = "x"\ndisplay "`tag\'"');
+check('clean do-file has no findings', lintClean.findings.length === 0, lintClean.findings);
+
+console.log('signature');
+const sig = parseSignature('  74:13(101019):2537987732:2244255684');
+check('signature parses observations', sig.observations === 74);
+check('signature parses variables', sig.variables === 13);
+check('signature keeps both data hashes', sig.dataHashA === 2537987732 && sig.dataHashB === 2244255684);
+const sigTool = await registry.call('stata_signature', {});
+const sigPayload = JSON.parse(sigTool.content[0].text);
+check('stata_signature returns a fingerprint', sigPayload.observations === 74 && sigPayload.sortedby === 'foreign', sigPayload);
+
+const verified = await registry.call('stata_run', { code: 'summarize price', verify: true });
+const verifiedPayload = JSON.parse(verified.content[0].text);
+check('verify reports before and after', verifiedPayload.data?.before?.observations === 74 && verifiedPayload.data.changed === false, verifiedPayload.data);
+
+const ciRow = parseCoefficientRows('ROW||weight| 1.746559158| .6413537894| 0.4674482| 3.0256701')[0];
+check('interval columns parse', Math.abs(ciRow.ciLo - 0.4674482) < 1e-9 && Math.abs(ciRow.ciHi - 3.0256701) < 1e-9, ciRow);
+const omittedRow = parseCoefficientRows('ROW||o.weight| 0| 0')[0];
+check('o. prefix marks an omitted coefficient', omittedRow.omitted === true && omittedRow.term === 'weight', omittedRow);
 
 console.log('');
 if (failures.length === 0) {

@@ -11,3 +11,4 @@ export { parseCoefficientRows, parseModelHeader } from './model.mjs';
 export { parseProfileRows, parseDatasetHeader } from './profile.mjs';
 export { normalCdf, normalTwoSidedP, studentTwoSidedP } from './dist.mjs';
 export { parseFirstError } from './errors.mjs';
+export { parseSignature, parseSortedBy } from './signature.mjs';
