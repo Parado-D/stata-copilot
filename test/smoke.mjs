@@ -3,7 +3,10 @@
  * End-to-end smoke test: drives the MCP server over stdio against a live
  * Stata session and asserts the structured fields the README promises.
  *
- *   node test/smoke.mjs            # requires Stata + the AI Skill service
+ *   node test/smoke.mjs            # requires Stata (built-in pystata engine)
+ *
+ * Set STATA_COPILOT_DRIVER=http to run the same assertions against a live
+ * stata-ai-skill service instead.
  *
  * Exits non-zero on the first failed assertion so CI (and you) can trust it.
  */
@@ -32,7 +35,7 @@ function check(name, condition, detail) {
 
 class Client {
   constructor({ cwd }) {
-    this.proc = spawn(process.execPath, [serverEntry, '--no-ledger'], {
+    this.proc = spawn(process.execPath, [serverEntry, '--no-ledger', '--driver', process.env.STATA_COPILOT_DRIVER ?? 'auto'], {
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -78,10 +81,12 @@ class Client {
     const id = this.nextId++;
     const frame = { jsonrpc: '2.0', id, method, params };
     return new Promise((resolve, reject) => {
+      // Generous on purpose: a fresh pystata process spends about a minute
+      // building the graphics subsystem the first time a graph is exported.
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`timeout waiting for ${method}`));
-      }, 30_000);
+      }, 180_000);
       this.pending.set(id, (reply) => {
         clearTimeout(timer);
         if (reply.error) reject(new Error(`${method}: ${reply.error.message}`));
@@ -202,12 +207,15 @@ try {
   check('run outside roots is allowed without roots configured', outside.payload?.success === true, outside.payload);
 
   console.log('graphs');
+  const graphPath = path.join(workdir, 'g.png');
   const graphed = await client.call('stata_run', {
-    code: 'sysuse auto, clear\nscatter price mpg\ngraph export "g.png", replace width(600)',
+    code: `sysuse auto, clear\nscatter price mpg\ngraph export "${graphPath.replace(/\\/g, '/')}", replace width(600)`,
     cwd: workdir,
   });
   check('graph run succeeded', graphed.payload?.success === true, graphed.payload?.output?.slice(-300));
-  const images = await client.call('stata_graphs', {});
+  // The engine may hand the capture back on its own (service) or just leave the
+  // file on disk (pystata); ask for the file explicitly so both paths are tested.
+  const images = await client.call('stata_graphs', { files: [graphPath] });
   check('one image attached', images.images.length >= 1, { images: images.images.length, files: images.payload?.files });
   check('image payload is base64 png', images.images[0]?.mimeType === 'image/png' && images.images[0]?.data?.length > 1000);
 

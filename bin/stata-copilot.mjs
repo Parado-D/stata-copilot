@@ -16,7 +16,7 @@ import path from 'node:path';
 
 import { PACKAGE_NAME, VERSION, SERVER_INFO } from '../src/version.mjs';
 import { parseConfig, helpText, ConfigError } from '../src/config.mjs';
-import { createEngine } from '../src/engines/index.mjs';
+import { createEngine, resolveDriver } from '../src/engines/index.mjs';
 import { createTools } from '../src/tools/index.mjs';
 import { createServer, serveStdio } from '../src/server.mjs';
 import { createLogger } from '../src/log.mjs';
@@ -46,15 +46,19 @@ async function main(argv) {
   }
 
   const log = createLogger({ level: action === 'doctor' ? 'error' : config.logLevel });
-  log.info(`${PACKAGE_NAME} ${VERSION} (${action}) driver=${config.driver} endpoint=${config.endpoint} mode=${config.mode}`);
+  const resolved = resolveDriver({ driver: config.driver, stataHome: config.stataHome ?? undefined, python: config.python });
+  if (config.driver === 'auto' && resolved.detection) {
+    log.info(`driver auto → ${resolved.driver} (${resolved.detection.reason})`);
+  }
+  log.info(`${PACKAGE_NAME} ${VERSION} (${action}) driver=${resolved.driver} endpoint=${config.endpoint} mode=${config.mode}`);
 
   let engine;
   try {
     engine = createEngine({
-      driver: config.driver,
+      driver: resolved.driver,
       endpoint: config.endpoint,
-      stataHome: config.stataHome ?? undefined,
-      python: config.python,
+      stataHome: resolved.detection?.stataHome ?? config.stataHome ?? undefined,
+      python: resolved.detection?.python ?? config.python,
       edition: config.edition,
       log,
     });
@@ -64,7 +68,7 @@ async function main(argv) {
   }
 
   if (action === 'doctor') {
-    const report = await diagnose({ engine, config });
+    const report = await diagnose({ engine, config, resolved });
     process.stdout.write(JSON.stringify(report, null, 2) + '\n');
     return report.reachable ? 0 : 1;
   }
@@ -77,7 +81,7 @@ async function main(argv) {
 }
 
 /** `--doctor`: one JSON object explaining this installation, never throws. */
-async function diagnose({ engine, config }) {
+async function diagnose({ engine, config, resolved }) {
   const report = {
     name: PACKAGE_NAME,
     version: VERSION,
@@ -88,6 +92,8 @@ async function diagnose({ engine, config }) {
     config: {
       endpoint: config.endpoint,
       driver: config.driver,
+      driverResolved: resolved?.driver ?? config.driver,
+      autoDetection: resolved?.detection ?? null,
       mode: config.mode,
       roots: config.roots,
       defaultTimeout: config.defaultTimeout,

@@ -53,7 +53,7 @@ for (const file of modules) {
 check('every module imports without error', importErrors === 0, `${importErrors} failed`);
 
 const { TOOL_MODULES, assertTool, createTools } = await import(pathToFileURL(path.join(ROOT, 'src/tools/index.mjs')).href);
-const { ENGINE_DRIVERS, createEngine, ENGINES } = await import(pathToFileURL(path.join(ROOT, 'src/engines/index.mjs')).href);
+const { ENGINE_DRIVERS, DRIVERS, createEngine, ENGINES, resolveDriver, detectPystata } = await import(pathToFileURL(path.join(ROOT, 'src/engines/index.mjs')).href);
 const { CONFIG_OPTIONS, parseConfig, helpText, ConfigError } = await import(pathToFileURL(path.join(ROOT, 'src/config.mjs')).href);
 const { VERSION, SERVER_INFO } = await import(pathToFileURL(path.join(ROOT, 'src/version.mjs')).href);
 const { checkPolicy, checkCwd, MODES } = await import(pathToFileURL(path.join(ROOT, 'src/policy.mjs')).href);
@@ -91,6 +91,10 @@ check('http driver is registered', Boolean(ENGINES.http));
 const http = createEngine({ driver: 'http', endpoint: 'http://127.0.0.1:9' });
 check('engine implements status/execute/break', ['status', 'execute', 'break'].every((m) => typeof http[m] === 'function'));
 check('unknown driver is refused', (() => { try { createEngine({ driver: 'nope' }); return false; } catch (e) { return e.code === 'UNKNOWN_TOOL' || e.code === 'BAD_REQUEST'; } })());
+check('auto is offered as a selector, not an engine', DRIVERS[0] === 'auto' && !ENGINES.auto, DRIVERS);
+check('an explicit driver is never second-guessed', resolveDriver({ driver: 'http' }).driver === 'http');
+const detection = detectPystata({ stataHome: 'C:/definitely/not/here' });
+check('detection explains itself when Stata is missing', detection.available === false && typeof detection.reason === 'string', detection.reason);
 
 console.log('error contracts');
 const codes = Object.values(ERROR_CODES);
@@ -106,7 +110,7 @@ console.log('config contracts');
 check('package version is the single source', VERSION === pkg.version, `${VERSION} vs ${pkg.version}`);
 check('serverInfo carries name+version', SERVER_INFO.name === pkg.name && SERVER_INFO.version === pkg.version);
 const defaults = parseConfig([], {}).config;
-check('defaults are usable', defaults.mode === 'guarded' && defaults.driver === 'http' && defaults.defaultTimeout === 120);
+check('defaults are usable', defaults.mode === 'guarded' && defaults.driver === 'auto' && defaults.defaultTimeout === 120);
 check('--flag=value form parses', parseConfig(['--mode=readonly'], {}).config.mode === 'readonly');
 check('--root is repeatable', parseConfig(['--root', 'C:\\a', '--root', 'C:\\b'], {}).config.roots.length === 2);
 check('unknown flag is refused', (() => { try { parseConfig(['--nope'], {}); return false; } catch (e) { return e instanceof ConfigError; } })());

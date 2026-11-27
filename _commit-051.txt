@@ -1,0 +1,20 @@
+feat: run Stata from the package itself (0.5.1)
+
+--driver now defaults to auto: the server finds a Stata installation and a
+Python that can import pystata, then keeps Stata in its own child process.
+The HTTP service is still supported, named explicitly with --driver http.
+
+- engines: DRIVERS / resolveDriver / detectPystata / findStataHome /
+  findPython; --doctor reports driverResolved and autoDetection{reason}
+- bridge: re-press StataSO_SetBreak while a command runs (a break that
+  arrived before Stata started was being discarded); treat
+  SystemError("--Break--") as an interruption; clear the flag afterwards
+- session: set linesize 255 at bootstrap -- Stata wrapped the ROW|... lines
+  stata_model reads at 80 columns and the coefficient table came back short
+- smoke: runs on the default engine, asks stata_graphs for the exported PNG
+  by path, and waits long enough for the first graph export in a fresh
+  process (about a minute while Stata builds its graphics subsystem)
+- docs: one way to run Stata plus a fallback; graphs are files under the
+  built-in engine
+
+Tests: contracts 48, offline 50, pystata 13, smoke 48 (Stata 18 MP).

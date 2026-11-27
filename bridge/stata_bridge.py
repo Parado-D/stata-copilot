@@ -28,6 +28,7 @@ import re
 import sys
 import tempfile
 import threading
+import time
 import traceback
 from contextlib import redirect_stdout
 
@@ -44,6 +45,10 @@ sys.stdout = JSON_OUT
 
 OUT_LOCK = threading.Lock()
 BUSY = threading.Event()
+# Set while a break has been requested but the running command has not noticed
+# it yet. Stata only checks the flag between commands or at loop check points,
+# so a request can arrive while the parser is still starting -- re-press it.
+BREAK_PENDING = threading.Event()
 STOP = threading.Event()
 TASKS = queue.Queue()
 
@@ -164,13 +169,19 @@ def run_code(code, cwd):
         if cwd:
             os.chdir(previous)
 
-    interrupted = "--Break--" in output
     rc = 0
     if error is not None:
         # pystata raises SystemError whose text ends in `r(NNN);` -- that is the
         # Stata return code, and it is more reliable than re-reading `_rc`.
         match = re.search(r"r\((\d+)\)", str(error))
         rc = int(match.group(1)) if match else _return_code()
+
+    # A break shows up in the transcript when Stata notices it, and in the
+    # exception text when it aborts the command: pystata raises
+    # SystemError("--Break--") without writing the marker to the log.
+    interrupted = "--Break--" in output or "--Break--" in str(error or "")
+    if not interrupted and BREAK_PENDING.is_set() and rc in (1, 0):
+        interrupted = True
     result = {
         "output": output,
         "rc": rc,
@@ -180,6 +191,23 @@ def run_code(code, cwd):
     if error is not None:
         result["error"] = str(error).strip().splitlines()[0][:400]
     return result
+
+
+def _press_break(seconds=30.0, interval=0.25):
+    """Re-press the break flag until the command notices it.
+
+    The reader thread answers `break` immediately, but Stata can still be
+    parsing the command at that moment, and the flag set then is cleared when
+    the command actually starts -- the run would then never stop. Pressing
+    again while the worker is busy closes that window.
+    """
+    deadline = time.time() + seconds
+    while BREAK_PENDING.is_set() and BUSY.is_set() and time.time() < deadline:
+        try:
+            STLIB.StataSO_SetBreak(1)
+        except Exception:  # the library is gone; nothing to press
+            return
+        time.sleep(interval)
 
 
 def worker():
@@ -208,6 +236,13 @@ def worker():
             )
         finally:
             BUSY.clear()
+            if BREAK_PENDING.is_set():
+                BREAK_PENDING.clear()
+                try:
+                    # Leave no break behind: it would abort the next command.
+                    STLIB.StataSO_SetBreak(0)
+                except Exception:
+                    pass
             TASKS.task_done()
 
 
@@ -230,8 +265,11 @@ def main():
             emit({"id": request.get("id"), "ok": True, "result": dict(STATUS, busy=BUSY.is_set())})
         elif op == "break":
             # Deliberately not queued: this is the one request that must overtake
-            # the running command. Stata honours the flag at its next check point.
+            # the running command. Stata honours the flag at its next check point,
+            # and _press_break keeps pressing until it does.
+            BREAK_PENDING.set()
             STLIB.StataSO_SetBreak(1)
+            threading.Thread(target=_press_break, name="stata-break", daemon=True).start()
             emit({"id": request.get("id"), "ok": True, "result": {"requested": True, "busy": BUSY.is_set()}})
         elif op == "run":
             if BUSY.is_set() or not TASKS.empty():

@@ -4,14 +4,49 @@ All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1]
+
+### Changed — the built-in engine is the default path
+
+The package no longer asks you to run a second service in order to use Stata. `--driver` defaults
+to `auto`: it looks for a Stata installation (a folder with `mp-64.dll`, `se-64.dll` or
+`be-64.dll`) and a Python 3 that can `import pystata`, and when both exist it runs Stata in this
+server's own child process. When they do not, it falls back to `http` and says so in the log.
+
+- `--driver auto` added; `ENGINE_DRIVERS` still lists the concrete engines, `DRIVERS` adds the
+  selector. `resolveDriver()` and `detectPystata()` are exported so a host can ask "what would you
+  pick here, and why".
+- `--doctor` now reports `config.driverResolved` plus `config.autoDetection` (`available`,
+  `stataHome`, `python`, `reason`) — a failed auto-detection is a sentence, not a mystery.
+- `--stata-home` is auto-detected (common install folders, then drive roots); `--python` falls back
+  to `python`/`python3` on `PATH` and to the interpreter bundled with DeepSeek Harness.
+- README / README.zh-CN: requirements are Stata + Python + Node; the HTTP service is documented as
+  an optional fallback for machines that already run it. `--driver http` remains fully supported.
+- `test/smoke.mjs` runs on the default engine now (set `STATA_COPILOT_DRIVER=http` to point the
+  same assertions at a service), and asks `stata_graphs` for the exported PNG by path so the graph
+  assertions hold in both engines.
+- `package.json` description: dropped the "pair it with a local service" clause; the built-in
+  engine is now the stated way it runs.
+
+### Fixed — three things the standalone engine needed
+
+- **A break could land before Stata started the command** and be discarded with it, so a long loop
+  ran to its timeout instead of stopping. The bridge now keeps re-pressing `StataSO_SetBreak` while
+  the command is still running, and clears the flag afterwards so it cannot abort the next command.
+- **`interrupted` was never true** when pystata aborted with `SystemError("--Break--")`: the marker
+  reaches the exception text, not the transcript. Both places are checked now, and a break that was
+  requested and produced `r(1)` counts as one.
+- **`set linesize 255` in the session bootstrap.** Stata wraps long output at 80 columns by
+  default, which cut the `ROW|…` lines `stata_model` reads into two — the coefficient table came
+  back short and the collinear term unmarked under the standalone engine.
+
 ## [0.5.0]
 
 ### Added — a Stata engine of its own, so the package stands alone
 
 `--driver pystata` runs the session inside this server: a Python child loads Stata's own embedded
 interface (`<Stata home>/utilities/pystata` + `mp-64.dll`), and the 16 tools work unchanged. No
-`stata-ai-skill` service, no HTTP hop, no second install. The `http` driver stays the default and
-keeps working exactly as before.
+`stata-ai-skill` service, no HTTP hop, no second install.
 
 - `bridge/stata_bridge.py` — two threads on purpose. The reader thread answers `status` from a
   startup snapshot and executes `break` immediately, because a break that queues behind the command

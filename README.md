@@ -20,13 +20,18 @@ behind a run record you could put in a replication package. `stata-copilot` clos
 
 ## Requirements
 
-- **Stata** 17 or 18 (MP/SE/BE), licensed and discoverable.
-- A running **`stata-ai-skill`** service — the local HTTP session manager the server drives
-  (default `http://127.0.0.1:19522`). It owns the live Stata process, licence and graph capture.
+- **Stata** 17 or 18 (MP/SE/BE), licensed. Stata ships its own embedded engine — `pystata` and
+  `mp-64.dll` — and that is what this server loads by default.
+- **Python 3** that can import `pystata` (the interpreter bundled with Stata or with DeepSeek
+  Harness works; `python` on `PATH` is used when nothing else is configured).
 - **Node.js ≥ 18.17** (only to run the server; Stata work happens in Stata).
 
-If the service is not up, every tool fails with `OFFLINE` and the exact endpoint it tried —
-nothing fails silently.
+Nothing else. There is no second service to start: `--driver auto` (the default) finds Stata and
+`pystata`, then runs Stata inside a child process of this server, with `break` wired to the
+shared library's `StataSO_SetBreak`.
+
+If your machine already runs a `stata-ai-skill` HTTP service, `--driver http` still drives it
+(`--endpoint http://127.0.0.1:19522`); that path is optional and never required.
 
 ## Install
 
@@ -52,8 +57,9 @@ The mount lives in [`cordis.patch.yml`](cordis.patch.yml). Two details worth kno
 - The row starts the server with **the DSH executable itself plus `ELECTRON_RUN_AS_NODE=1`**, so a
   standalone `node` is not required on `PATH`; on a source checkout `process.execPath` is `node`
   and the variable is inert.
-- `failOnStartupError: false` and a `reconnect` block mean a missing Stata or a stopped
-  `stata-ai-skill` service degrades to "tool unavailable", never to a profile that will not boot.
+- `failOnStartupError: false` and a `reconnect` block mean a missing Stata (or a stopped HTTP
+  service, if you chose that driver) degrades to "tool unavailable", never to a profile that will
+  not boot.
 
 **The repository is public**, so the Git URL above installs anonymously — verified: `pnpm add
 https://github.com/Parado-D/stata-copilot` resolves and installs `stata-copilot@0.3.0` in about
@@ -125,7 +131,7 @@ speaks. It runs a complete analysis on Stata's `auto` data (profile → summariz
 robust regress → graph → ledger) and writes `report.md`, `estimates.json` and a PNG:
 
 ```bash
-node examples/real-analysis/run.mjs          # requires the stata-ai-skill service
+node examples/real-analysis/run.mjs          # loads Stata itself (auto driver)
 ```
 
 If that command prints coefficients and writes the report, the server half is fine and any
@@ -142,32 +148,33 @@ node examples/paper/run.mjs        # chapters through the MCP server
 The same five files also run in a plain Stata session (`do analysis/run-all.do`), which is the
 point: the agent layer must not be the only way to reproduce the paper.
 
-## Two ways to run Stata
+## One way to run Stata, and a fallback
 
-One server, two interchangeable engines. The tool surface — 16 tools, the policy gate, the ledger,
-`stata_model`'s numbers — is identical either way; only who owns the Stata session changes.
+The server loads Stata itself. There is no second product to install and no service to keep
+running: `--driver auto` (the default) finds the Stata installation and a Python that can import
+`pystata`, then keeps a Stata session alive in a child process of this server.
 
-| | `--driver http` (default) | `--driver pystata` (standalone) |
+| | `auto` (default) / `pystata` | `--driver http` (optional) |
 |---|---|---|
-| Stata runs in | the `stata-ai-skill` service on `127.0.0.1:19522` | a Python child that this package starts |
-| Extra software | that service | Python 3 + the `pystata` that ships with Stata |
-| `stata_break` | HTTP `POST /break` | `StataSO_SetBreak` on `mp-64.dll` |
-| Install | two packages | this one only |
+| Stata runs in | a Python child that this package starts | an existing `stata-ai-skill` service on `127.0.0.1:19522` |
+| Extra software | Python 3 + the `pystata` that ships with Stata | that service |
+| `stata_break` | `StataSO_SetBreak` on `mp-64.dll` | HTTP `POST /break` |
+| Install | this package only | two packages |
 
-### Standalone mode: no second package
+### Standalone mode: Stata inside the server
 
 Stata 17+ ships an official embedded engine: `<Stata home>/utilities/pystata` plus `mp-64.dll`.
-`--driver pystata` loads it in a long-lived child process, so the session (loaded data, `estimates`,
-macros) survives between tool calls exactly as before:
+The engine loads it in a long-lived child process, so the session (loaded data, `estimates`,
+macros) survives between tool calls:
 
 ```bash
 node bin/stata-copilot.mjs --driver pystata --stata-home "D:/" --python "C:/Python312/python.exe"
 ```
 
-or through the environment:
+`--stata-home` and `--python` are optional — `auto` discovers them — but naming them removes the
+guesswork:
 
 ```bash
-set STATA_COPILOT_DRIVER=pystata
 set STATA_COPILOT_STATA_HOME=D:\
 set STATA_COPILOT_PYTHON=C:\Python312\python.exe
 ```
@@ -179,6 +186,10 @@ set STATA_COPILOT_PYTHON=C:\Python312\python.exe
   three seconds and the session stays usable.
 - No HTTP hop means no 300-second artificial ceiling; each call carries its own timeout, and
   background jobs (`stata_job_*`) keep working — they spawn a separate batch process either way.
+- Graphs are files in this mode. Write `graph export "output/fig1.png", replace width(1200)` and
+  pass the path to `stata_graphs`; the engine does not capture the picture for you. The first
+  export in a fresh process spends about a minute building Stata's graphics subsystem, and the
+  ones after it take under a second.
 
 Verified on Windows with Stata 18 MP: `node test/pystata.mjs` runs 13 live assertions (licence,
 `sysuse`, coefficients identical to the HTTP engine, `r(111)` preserved, busy state, break, session
@@ -349,8 +360,8 @@ analysis rather than a one-off command.
 | Flag | Env | Default |
 |---|---|---|
 | `--endpoint` | `STATA_COPILOT_ENDPOINT` | `http://127.0.0.1:19522` |
-| `--driver` | `STATA_COPILOT_DRIVER` | `http`; `pystata` runs Stata in-process (see above) |
-| `--stata-home` | `STATA_COPILOT_STATA_HOME` | none; required by `--driver pystata` (`D:/`) |
+| `--driver` | `STATA_COPILOT_DRIVER` | `auto`; picks `pystata` when Stata and Python are found, else `http` |
+| `--stata-home` | `STATA_COPILOT_STATA_HOME` | auto-detected; the folder holding `mp-64.dll` (`D:/`) |
 | `--python` | `STATA_COPILOT_PYTHON` | `python` on PATH (must import `pystata`) |
 | `--edition` | `STATA_COPILOT_EDITION` | `mp` (`mp`/`se`/`be`) |
 | `--mode` | `STATA_COPILOT_MODE` | `guarded` |

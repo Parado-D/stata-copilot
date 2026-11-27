@@ -24,7 +24,7 @@ const STRICTNESS = { open: 0, guarded: 1, readonly: 2 };
  * cost of turning it off is that abbreviated names now fail loudly, which is
  * exactly what a script wants.
  */
-const DEFAULT_BOOTSTRAP = ['set varabbrev off', 'set more off'].join('\n');
+const DEFAULT_BOOTSTRAP = ['set varabbrev off', 'set more off', 'set linesize 255'].join('\n');
 
 export class Session {
   constructor({

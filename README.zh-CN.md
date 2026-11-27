@@ -18,12 +18,17 @@
 
 ## 环境要求
 
-- **Stata** 17 或 18（MP/SE/BE），已授权且能被找到。
-- 一个在跑的 **`stata-ai-skill`** 服务——本地 HTTP 会话管理器，服务器通过它驱动 Stata
-  （默认 `http://127.0.0.1:19522`）。它持有真正的 Stata 进程、授权与图捕获。
+- **Stata** 17 或 18（MP/SE/BE），已授权。Stata 自带官方嵌入引擎（`pystata` 与 `mp-64.dll`），
+  服务器默认加载的就是它。
+- **Python 3**，能 `import pystata`（Stata 或 DeepSeek Harness 自带的解释器都可以；什么都没配时
+  用 `PATH` 上的 `python`）。
 - **Node.js ≥ 18.17**（只用来跑服务器；计算都发生在 Stata 里）。
 
-服务没起来时，每个工具都会带 `OFFLINE` 和它试过的地址失败——不会静默失败。
+不需要第二个服务：`--driver auto`（默认）自己找 Stata 与 `pystata`，然后在服务器自己的子进程里
+跑 Stata，`stata_break` 直接调共享库的 `StataSO_SetBreak`。
+
+机器上本来就跑着 `stata-ai-skill` 服务的话，`--driver http` 仍然可以驱动它
+（`--endpoint http://127.0.0.1:19522`）；那只是可选项，不是前提。
 
 ## 安装
 
@@ -52,7 +57,8 @@ dsh plugin --profile <profile> add link:/path/to/stata-copilot   # 软链，改�
 
 - 这一行用 **DSH 自己的可执行文件 + `ELECTRON_RUN_AS_NODE=1`** 启动服务器，所以 `PATH` 上不需要
   独立的 `node`；在源码检出里 `process.execPath` 就是 node，这个变量无副作用。
-- `failOnStartupError: false` 加 `reconnect` 块：Stata 没装、或 `stata-ai-skill` 没起来，会退化成
+- `failOnStartupError: false` 加 `reconnect` 块：Stata 没装（或者你选了 http 引擎而那个服务没起来），
+  会退化成
   「工具不可用」，而不是让整个剖面起不来。
 
 要调这一行的参数，在你自己的剖面 patch 层里覆盖，不要改包内文件：
@@ -100,31 +106,30 @@ node bin/stata-copilot.mjs --doctor
 打印一个 JSON：配置、引擎是否可达、服务找到的 Stata 版本、授权状态、工具清单；服务连不上时退出码
 非零。贴进 issue 基本能一次答完「它不工作」。
 
-## 两种跑法：连服务，或者自带引擎
+## 一种跑法，外加一个退路
 
-同一个服务器、两个可互换的引擎。16 个工具、策略门禁、台账、`stata_model` 的数字都一样，区别只在
-**Stata 会话归谁管**。
+服务器自己加载 Stata，没有第二个产品要装，也没有服务要一直开着：`--driver auto`（默认）找到
+Stata 安装目录和能 `import pystata` 的 Python，然后把 Stata 会话养在这个服务器自己的子进程里。
 
-| | `--driver http`（默认） | `--driver pystata`（自带引擎） |
+| | `auto`（默认）/ `pystata` | `--driver http`（可选） |
 |---|---|---|
-| Stata 跑在哪 | `stata-ai-skill` 服务（`127.0.0.1:19522`） | 本包自己起的 Python 子进程 |
-| 额外要装什么 | 那个服务 | Python 3 + Stata 自带的 `pystata` |
-| `stata_break` 怎么实现 | HTTP `POST /break` | `mp-64.dll` 的 `StataSO_SetBreak` |
-| 安装量 | 两个包 | 只需要这一个 |
+| Stata 跑在哪 | 本包自己起的 Python 子进程 | 已有的 `stata-ai-skill` 服务（`127.0.0.1:19522`） |
+| 额外要装什么 | Python 3 + Stata 自带的 `pystata` | 那个服务 |
+| `stata_break` 怎么实现 | `mp-64.dll` 的 `StataSO_SetBreak` | HTTP `POST /break` |
+| 安装量 | 只需要这一个包 | 两个包 |
 
-### 自带引擎：不依赖第二个包
+### 自带引擎：Stata 跑在服务器里
 
 Stata 17 起自带官方嵌入接口：`<Stata 安装目录>/utilities/pystata` 与 `mp-64.dll`。
-`--driver pystata` 把它加载在一个长期存活的子进程里，数据、`estimates`、宏都照样跨调用保留：
+引擎把它加载在一个长期存活的子进程里，数据、`estimates`、宏都照样跨调用保留：
 
 ```bash
 node bin/stata-copilot.mjs --driver pystata --stata-home "D:/" --python "C:/Python312/python.exe"
 ```
 
-也可以走环境变量：
+`--stata-home` 与 `--python` 都可以省——`auto` 会自己找；写出来只是省掉猜测：
 
 ```bash
-set STATA_COPILOT_DRIVER=pystata
 set STATA_COPILOT_STATA_HOME=D:\
 set STATA_COPILOT_PYTHON=C:\Python312\python.exe
 ```
@@ -135,6 +140,9 @@ set STATA_COPILOT_PYTHON=C:\Python312\python.exe
   `StataSO_SetBreak`。`while 1 { }` 这类死循环约三秒停下，且会话仍然可用。
 - 少了 HTTP 那一跳，也就没有「300 秒就 409」的天花板；每次调用按自己的超时算，后台作业
   （`stata_job_*`）照旧可用——它本来就另起一个 batch 进程。
+- 这个模式下图是**文件**：写 `graph export "output/fig1.png", replace width(1200)`，再把路径交给
+  `stata_graphs`；引擎不会替你抓图。新进程里第一次导出要约一分钟（Stata 在建图形子系统），
+  之后每次不到一秒。
 
 Windows + Stata 18 MP 实测：`node test/pystata.mjs` 13 条断言全部通过（许可证、`sysuse`、
 系数与 HTTP 引擎一致、`r(111)` 保留、忙状态、break、break 后会话可用）。
@@ -300,8 +308,8 @@ DSH 用户不用手动放：bundle 里已经带了这一行（`skill-filesystem`
 | 参数 | 环境变量 | 默认 |
 |---|---|---|
 | `--endpoint` | `STATA_COPILOT_ENDPOINT` | `http://127.0.0.1:19522` |
-| `--driver` | `STATA_COPILOT_DRIVER` | `http`；`pystata` 表示 Stata 跑在进程内 |
-| `--stata-home` | `STATA_COPILOT_STATA_HOME` | 无；`pystata` 模式必填（如 `D:/`） |
+| `--driver` | `STATA_COPILOT_DRIVER` | `auto`；找到 Stata 与 Python 就用 `pystata`，否则 `http` |
+| `--stata-home` | `STATA_COPILOT_STATA_HOME` | 自动探测；`mp-64.dll` 所在目录（如 `D:/`） |
 | `--python` | `STATA_COPILOT_PYTHON` | PATH 上的 `python`（须能 `import pystata`） |
 | `--edition` | `STATA_COPILOT_EDITION` | `mp`（`mp`/`se`/`be`） |
 | `--mode` | `STATA_COPILOT_MODE` | `guarded` |

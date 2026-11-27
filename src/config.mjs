@@ -9,7 +9,7 @@
 
 import path from 'node:path';
 
-import { ENGINE_DRIVERS, DEFAULT_ENDPOINT } from './engines/index.mjs';
+import { DRIVERS, DEFAULT_ENDPOINT } from './engines/index.mjs';
 import { DEFAULT_STATA_EXE } from './jobs.mjs';
 import { LOG_LEVELS } from './log.mjs';
 import { MODES } from './policy.mjs';
@@ -36,8 +36,8 @@ export const CONFIG_OPTIONS = [
   },
   {
     key: 'driver', flag: '--driver', placeholder: '<name>', env: 'STATA_COPILOT_DRIVER',
-    default: 'http', type: 'string', choices: ENGINE_DRIVERS,
-    help: `Engine backend (${ENGINE_DRIVERS.join('|')}).`,
+    default: 'auto', type: 'string', choices: DRIVERS,
+    help: `Engine backend (${DRIVERS.join('|')}). auto uses the built-in pystata engine when Stata and pystata are found, otherwise an HTTP service.`,
   },
   {
     key: 'stataHome', flag: '--stata-home', placeholder: '<dir>', env: 'STATA_COPILOT_STATA_HOME',
