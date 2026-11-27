@@ -1,6 +1,6 @@
 # Examples
 
-Two kinds of example live here.
+Three kinds of example live here.
 
 ## Wiring files
 
@@ -36,4 +36,33 @@ and the run ledger `output/.stata-copilot/runs.jsonl`. The report's numbers come
 `stata_model` payloads, not from scraping the printed regression table — that is the whole point
 of the server, and the demo would fail loudly if the structured path broke.
 
-The `output/` directory is generated and ignored by git; run the command to reproduce it.
+## A paper, one chapter at a time
+
+`paper/` takes the same dataset and organises it the way a study is actually written: numbered
+do-files, one job each, a log per file, and everything the run produces under `output/`.
+
+```
+paper/analysis/
+  00-plan.md        question, data, design — written before any code
+  10-import.do      load, label, assert the unit of observation
+  20-clean.do       derived variables, missing-data count, save the analytic file
+  30-describe.do    Table 1, exported as .rtf and .csv
+  40-model.do       Table 2 from three named estimates
+  50-figures.do     Figures 1-4, each exported at width(1200)
+  run-all.do        the five files, in order, from a plain Stata session
+```
+
+```bash
+node examples/paper/run.mjs        # the agent route
+```
+
+The driver stops at the first failing chapter and prints that chapter's output, so a broken run
+names its step. It also writes `paper/output/REPORT.md` listing the chapters, artifacts, figures
+and logs that the run produced.
+
+The numbered files are deliberately ordinary Stata: `cd paper/analysis && do run-all.do` produces
+the same tree without any agent involved. See [`paper/README.md`](paper/README.md) for what each
+chapter is meant to teach — including two Stata details that bite (`estimates save` persists one
+result set per call; export a figure right after drawing it).
+
+The `output/` directories are generated and ignored by git; run either command to reproduce them.

@@ -6,6 +6,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), version
 
 ## [Unreleased]
 
+### Added — a chaptered paper example
+
+- `examples/paper/` — a study split into numbered do-files (`00-plan.md`, `10-import`, `20-clean`,
+  `30-describe`, `40-model`, `50-figures`, `run-all.do`), one log per chapter, and every product
+  under `output/`. `run.mjs` drives the chapters through the server and writes `output/REPORT.md`;
+  `do run-all.do` reproduces the same tree without an agent.
+- `npm run demo:paper` — runs the whole study end to end against the live session.
+
+### Changed — `stata_run_do` runs the file, not a copy of its text
+
+- Do-files are now executed with the engine's `file` mode (`do "..."`) instead of having their
+  contents pasted in. Relative paths, `log using`, `graph export` and `estimates` behave exactly as
+  they do in a Stata session driven by hand; the policy still reads the file body first, so a
+  do-file cannot smuggle a shell escape past the gate.
+- `Session.run` accepts `file` and passes it through to the engine.
+
 ### Examples: a wire-level client and a real analysis
 
 - `examples/mcp-client.mjs` — a ~120-line MCP stdio client that speaks the same JSON-RPC an agent host does, so the repository can demonstrate and test the client half of the contract.

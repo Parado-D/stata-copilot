@@ -49,6 +49,7 @@
     "test:contracts": "node test/contracts.mjs",
     "test:stata": "node test/smoke.mjs",
     "demo": "node examples/real-analysis/run.mjs",
+    "demo:paper": "node examples/paper/run.mjs",
     "check": "node --check bin/stata-copilot.mjs && node test/contracts.mjs"
   },
   "repository": {

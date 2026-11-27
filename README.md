@@ -83,13 +83,24 @@ node examples/real-analysis/run.mjs          # requires the stata-ai-skill servi
 If that command prints coefficients and writes the report, the server half is fine and any
 remaining problem is in the client wiring.
 
+[`examples/paper/`](examples/paper/) is the longer version: a study split into numbered do-files
+(`10-import` → `20-clean` → `30-describe` → `40-model` → `50-figures`), each one logged and
+rerunnable on its own, producing tables, figures and `output/REPORT.md`:
+
+```bash
+node examples/paper/run.mjs        # chapters through the MCP server
+```
+
+The same five files also run in a plain Stata session (`do analysis/run-all.do`), which is the
+point: the agent layer must not be the only way to reproduce the paper.
+
 ## Tools
 
 | Tool | What it is for |
 |---|---|
 | `stata_status` | Is Stata reachable, which installation, is a command running, what policy is active. |
 | `stata_run` | Run a block of commands; returns `success`, `returnCode`, transcript, graphs, policy warnings. |
-| `stata_run_do` | Run an existing `.do` file; `cwd` defaults to its folder. |
+| `stata_run_do` | Run an existing `.do` file as a file (`do "..."`); `cwd` defaults to its folder. |
 | `stata_results` | `r()`, `e()`, `s()` macros as JSON. |
 | `stata_profile_data` | Dataset header plus per-variable type, format, label and missing count. |
 | `stata_model` | One estimation command in, a coefficient table and fit statistics out. |
@@ -193,6 +204,7 @@ src/parsers/*.mjs       transcripts → numbers (macros, model, profile, distrib
 src/lib/*.mjs           text/image content helpers, schema validation
 src/config.mjs          flags + env + --help, all from one table
 src/errors.mjs          frozen error codes and the MCP error result shape
+examples/paper/         numbered chapters (import → clean → describe → model → figures) + driver
 ```
 
 Each layer has one job and one reason to change. Adding a tool touches two files; adding an engine
@@ -204,6 +216,7 @@ touches three; neither requires editing the protocol. See `docs/EXTENDING.md` fo
 npm test                  # contracts (36) + offline (35) — no Stata needed
 npm run test:contracts    # structural checks only: module graph, tool definitions, config
 npm run test:stata        # live Stata session, 28 assertions
+npm run demo:paper        # the chaptered study, end to end, on the live session
 npm run check             # syntax + contracts, what pre-commit runs
 ```
 

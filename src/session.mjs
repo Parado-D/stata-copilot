@@ -65,12 +65,12 @@ export class Session {
    * Gate → execute → truncate → record. Every run tool returns this payload,
    * so the contract an agent codes against is defined exactly once.
    */
-  async run({ tool, code, cwd, timeout, requestedMode }) {
-    const verdict = this.gate(code, { cwd, requestedMode });
+  async run({ tool, code, file, cwd, timeout, requestedMode }) {
+    const verdict = this.gate(code ?? '', { cwd, requestedMode });
     const started = Date.now();
     let result;
     try {
-      result = await this.engine.execute({ code, cwd, timeout: timeout ?? this.defaultTimeout });
+      result = await this.engine.execute({ code, file, cwd, timeout: timeout ?? this.defaultTimeout });
     } catch (err) {
       await this.ledger.record(
         {

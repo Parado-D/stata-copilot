@@ -31,7 +31,11 @@ export default {
     ctx.session.gate(body, { cwd: args.cwd, requestedMode: args.mode });
     const result = await ctx.session.run({
       tool: 'stata_run_do',
+      // The body is what the policy sees; `file` is what Stata runs, so relative
+      // paths, `do` semantics and native graph export behave exactly as they do
+      // in a plain Stata session.
       code: body,
+      file,
       cwd: args.cwd ?? path.dirname(file),
       timeout: args.timeout ?? 300,
       requestedMode: args.mode,
