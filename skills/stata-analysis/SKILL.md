@@ -140,3 +140,22 @@ result is reproducible. If a step was skipped, say which and why.
   `output/estimates/*.json` or re-run the do-file.
 - If `stata_model` returns `isError` with no `e(b)`, the command was not an estimation — read the
   transcript, fix the command, do not write a table around an empty result.
+
+## 中文速查（给中文用户和中文 agent）
+
+工具与流程同上，这里只列最容易忘的四条：
+
+1. **先看会话**：`stata_status` 确认 Stata 可达、`busy: false`、当前策略模式；不可达时错误里带 endpoint，
+   照着 `--endpoint` / `STATA_COPILOT_ENDPOINT` 改，不要猜。
+2. **写 do 文件，不要堆命令**：`10-import.do → 20-clean.do → 30-describe.do → 40-model.do → 50-figures.do`，
+   每个文件自带 `version 18`、`clear all`、`set more off`、`set varabbrev off`、`log using`。写完先
+   `stata_lint`（不执行、只读），error 必改，warning 要么改要么在报告里说明为什么接受。
+3. **数字从结构化结果取**：`stata_model` 给 `b/se/t/p/ciLo/ciHi` 与 `fit{n,r2,F,df_r,crit,omitted}`；
+   不要从回显里手抄系数，也不要凭记忆报上一轮的数。被 `omitted` 的变量要在报告里点名。
+4. **跑得久就转后台**：插补、bootstrap、上千次循环用 `stata_job_submit` 起独立进程，`stata_job_status`
+   轮询（带已跑秒数与日志尾）、`stata_job_log` 看进度、`stata_job_kill` 停。作业成败看日志里的
+   `r(NNN);`，不看退出码——batch 模式下 do 出错 Stata 也返回 0。
+
+汇报顺序：问题是什么 → 数据是什么 → 估计了什么 → 说明了什么 → **不能说明什么**；最后列 `analysis/` 与
+`output/` 的产物清单，让别人能重跑。完整中文说明见仓库的 `README.zh-CN.md`。
+

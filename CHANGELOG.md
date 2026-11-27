@@ -4,6 +4,18 @@ All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added — Chinese documentation
+
+- `README.zh-CN.md`: the whole guide in Chinese — requirements, the DSH one-click install (and the
+  plugin-manager registry pitfall that turns the install into a 404), the 16-tool table, a session
+  transcript, why long analyses cannot ride on `stata_run`, the two layers against silent errors,
+  fingerprint verification, the safety model and its six boundaries, configuration, code map and
+  development commands.
+- `package.json` description now carries a Chinese sentence, so the plugin list reads in Chinese too,
+  and `README.zh-CN.md` is part of the published files.
+
 ## [0.4.0]
 
 ### Added — catch the mistakes Stata reports as success

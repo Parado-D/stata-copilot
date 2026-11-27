@@ -2,6 +2,8 @@
 
 [![ci](https://github.com/Parado-D/stata-copilot/actions/workflows/ci.yml/badge.svg)](https://github.com/Parado-D/stata-copilot/actions/workflows/ci.yml)
 
+**English** · [中文说明](README.zh-CN.md)
+
 **An MCP server and skill pack that turn a coding agent into a disciplined Stata analyst.**
 
 Agents can already type `regress y x` into a terminal. What they cannot do is read Stata's
