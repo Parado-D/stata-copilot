@@ -28,7 +28,9 @@ behind a run record you could put in a replication package. `stata-copilot` clos
 
 Nothing else. There is no second service to start: `--driver auto` (the default) finds Stata and
 `pystata`, then runs Stata inside a child process of this server, with `break` wired to the
-shared library's `StataSO_SetBreak`.
+shared library's `StataSO_SetBreak`. The installation is found automatically (registry, then the
+usual folders); if yours is somewhere unusual, one flag or one environment variable fixes it —
+see [When Stata lives somewhere else](#when-stata-lives-somewhere-else).
 
 If your machine already runs a `stata-ai-skill` HTTP service, `--driver http` still drives it
 (`--endpoint http://127.0.0.1:19522`); that path is optional and never required.
@@ -181,6 +183,9 @@ set STATA_COPILOT_PYTHON=C:\Python312\python.exe
 
 - `--stata-home` is the folder holding `mp-64.dll` (`D:/` in the example). The bridge adds
   `<home>/utilities` to `PYTHONPATH` itself, so `import pystata` resolves without setup.
+- `--stata-exe` is `StataMP-64.exe` (or `StataSE-64.exe`). Only background jobs need it — they
+  start a real batch process — but it is discovered from the same answer as the home, so normally
+  you set neither.
 - `stata_break` is real in this mode: the bridge calls the DLL's `StataSO_SetBreak` from its stdin
   thread while Stata is still inside the previous command. A `while 1 { }` loop stops in about
   three seconds and the session stays usable.
@@ -190,6 +195,23 @@ set STATA_COPILOT_PYTHON=C:\Python312\python.exe
   pass the path to `stata_graphs`; the engine does not capture the picture for you. The first
   export in a fresh process spends about a minute building Stata's graphics subsystem, and the
   ones after it take under a second.
+
+### When Stata lives somewhere else
+
+Discovery looks at `--stata-home`/`--stata-exe`, then the environment, then the Windows registry
+(Stata registers `Stata18Do\shell\open\command` when it installs), then the usual folders
+(`C:/Program Files/Stata*`, `C:/Stata*`, and the root of each drive). A custom install such as
+`E:\Apps\Stata18` is the case that needs one line:
+
+```bash
+node bin/stata-copilot.mjs --doctor            # says what was found, and what to set if nothing was
+node bin/stata-copilot.mjs --stata-home "E:/Apps/Stata18"
+```
+
+`--doctor` reports `stata.home`, `stata.exe`, `stata.edition` and where each answer came from
+(`source`), plus a `hint` naming both settings when discovery came up empty. The edition is read
+from the library that exists (`mp-64.dll`, `se-64.dll`, `be-64.dll`), so a Stata/SE install loads
+as SE instead of failing on a missing MP library.
 
 Verified on Windows with Stata 18 MP: `node test/pystata.mjs` runs 13 live assertions (licence,
 `sysuse`, coefficients identical to the HTTP engine, `r(111)` preserved, busy state, break, session
@@ -362,15 +384,15 @@ analysis rather than a one-off command.
 | `--endpoint` | `STATA_COPILOT_ENDPOINT` | `http://127.0.0.1:19522` |
 | `--driver` | `STATA_COPILOT_DRIVER` | `auto`; picks `pystata` when Stata and Python are found, else `http` |
 | `--stata-home` | `STATA_COPILOT_STATA_HOME` | auto-detected; the folder holding `mp-64.dll` (`D:/`) |
+| `--stata-exe` | `STATA_COPILOT_STATA_EXE` | auto-detected; `StataMP-64.exe` (background jobs only) |
 | `--python` | `STATA_COPILOT_PYTHON` | `python` on PATH (must import `pystata`) |
-| `--edition` | `STATA_COPILOT_EDITION` | `mp` (`mp`/`se`/`be`) |
+| `--edition` | `STATA_COPILOT_EDITION` | auto-detected from the library present (`mp`/`se`/`be`) |
 | `--mode` | `STATA_COPILOT_MODE` | `guarded` |
 | `--root` | `STATA_COPILOT_ROOTS` | none (no cwd restriction) |
 | `--timeout` | `STATA_COPILOT_TIMEOUT` | `120` s per call |
 | `--max-output` | `STATA_COPILOT_MAX_OUTPUT` | `20000` chars of transcript |
 | `--no-ledger` | `STATA_COPILOT_NO_LEDGER` | ledger on |
 | `--log-level` | `STATA_COPILOT_LOG` | `info` (stderr only) |
-| `--stata-exe` | `STATA_COPILOT_STATA_EXE` | `D:\StataMP-64.exe` (used by background jobs) |
 | `--job-timeout` | `STATA_COPILOT_JOB_TIMEOUT` | `1800` s per background job |
 
 Flags also accept `--flag=value`. Unknown flags are refused rather than ignored, and every option

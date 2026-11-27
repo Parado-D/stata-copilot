@@ -10,7 +10,6 @@
 import path from 'node:path';
 
 import { DRIVERS, DEFAULT_ENDPOINT } from './engines/index.mjs';
-import { DEFAULT_STATA_EXE } from './jobs.mjs';
 import { LOG_LEVELS } from './log.mjs';
 import { MODES } from './policy.mjs';
 
@@ -42,7 +41,12 @@ export const CONFIG_OPTIONS = [
   {
     key: 'stataHome', flag: '--stata-home', placeholder: '<dir>', env: 'STATA_COPILOT_STATA_HOME',
     default: null, type: 'string',
-    help: 'Stata installation root (the folder holding mp-64.dll); required by --driver pystata, e.g. D:/',
+    help: 'Stata installation root (the folder holding mp-64.dll). Auto-detected; set it when Stata lives somewhere unusual, e.g. D:/Stata18',
+  },
+  {
+    key: 'stataExe', flag: '--stata-exe', placeholder: '<path>', env: 'STATA_COPILOT_STATA_EXE',
+    default: null, type: 'string',
+    help: 'StataMP-64.exe (or StataSE-64.exe) used by background jobs. Auto-detected from --stata-home and the Windows registry.',
   },
   {
     key: 'python', flag: '--python', placeholder: '<exe>', env: 'STATA_COPILOT_PYTHON',
@@ -78,11 +82,6 @@ export const CONFIG_OPTIONS = [
     key: 'persistLedger', flag: '--no-ledger', placeholder: '', env: 'STATA_COPILOT_NO_LEDGER',
     default: true, type: 'boolean',
     help: 'Do not append .stata-copilot/runs.jsonl under the run cwd.',
-  },
-  {
-    key: 'stataExe', flag: '--stata-exe', placeholder: '<path>', env: 'STATA_COPILOT_STATA_EXE',
-    default: DEFAULT_STATA_EXE, type: 'string',
-    help: 'Stata executable used for background jobs (a separate batch process).',
   },
   {
     key: 'jobTimeout', flag: '--job-timeout', placeholder: '<seconds>', env: 'STATA_COPILOT_JOB_TIMEOUT',

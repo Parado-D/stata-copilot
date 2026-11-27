@@ -4,6 +4,31 @@ All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2]
+
+### Added — discovery, and a way to say where Stata is
+
+Stata does not have to be in `D:\`. Both things this package needs are now found, or named:
+
+- `src/stata-paths.mjs` is the one answer to "where is Stata": `findStataHome()` (the folder with
+  `mp-64.dll` / `se-64.dll` / `be-64.dll`) and `findStataExe()` (the `.exe` that background jobs
+  spawn). Search order for each: explicit setting, environment, the other setting, the Windows
+  registry (`Stata18Do\shell\open\command`, which Stata writes when it installs), then the usual
+  folders under `Program Files`, `C:\Stata*`, and each drive root — including nested layouts such
+  as `D:\Stata18\StataMP-64.exe`.
+- `--stata-exe` / `STATA_COPILOT_STATA_EXE` added; `--stata-home` is no longer required. Setting
+  either one is enough: the exe's folder is a home, and a home usually contains the exe.
+- The edition is read from the library that exists (`mp`, `se`, `be`), so a Stata/SE install loads
+  as SE instead of failing on a missing MP library.
+- `--doctor` gained a `stata` block (`home`, `exe`, `edition`, `source`) and a `hint` that names
+  both flags when discovery found nothing. `config` reports the same values.
+
+### Fixed
+
+- Background jobs no longer default to a hard-coded `D:\StataMP-64.exe`. The executable is
+  discovered from the same answer as the embedded engine; when nothing is found, `stata_job_submit`
+  fails with `NOT_READY` and a sentence naming `--stata-exe` instead of a spawn error.
+
 ## [0.5.1]
 
 ### Changed — the built-in engine is the default path

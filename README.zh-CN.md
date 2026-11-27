@@ -136,6 +136,8 @@ set STATA_COPILOT_PYTHON=C:\Python312\python.exe
 
 - `--stata-home` 指 `mp-64.dll` 所在目录（例子里是 `D:/`）。桥会自己把 `<home>/utilities`
   加进 `PYTHONPATH`，不用手工配 `import pystata`。
+- `--stata-exe` 指 `StataMP-64.exe`（或 `StataSE-64.exe`）。只有后台作业需要它——那是一条真正的
+  batch 进程；但它和安装目录共用同一份探测结果，所以一般两个都不用写。
 - 这个模式下 `stata_break` 是真的中断：桥的 stdin 线程在 Stata 还在上一条命令里时就调用 DLL 的
   `StataSO_SetBreak`。`while 1 { }` 这类死循环约三秒停下，且会话仍然可用。
 - 少了 HTTP 那一跳，也就没有「300 秒就 409」的天花板；每次调用按自己的超时算，后台作业
@@ -143,6 +145,22 @@ set STATA_COPILOT_PYTHON=C:\Python312\python.exe
 - 这个模式下图是**文件**：写 `graph export "output/fig1.png", replace width(1200)`，再把路径交给
   `stata_graphs`；引擎不会替你抓图。新进程里第一次导出要约一分钟（Stata 在建图形子系统），
   之后每次不到一秒。
+
+### Stata 不在默认位置时
+
+探测顺序：`--stata-home`/`--stata-exe` → 环境变量 → 另一个设置（exe 所在目录就是 home，home
+里通常也有 exe）→ Windows 注册表（Stata 安装时写 `Stata18Do\shell\open\command`）→ 常见目录
+（`C:/Program Files/Stata*`、`C:/Stata*`、各盘根目录），也认 `D:/Stata18/StataMP-64.exe` 这种
+嵌套布局。装在 `E:\Apps\Stata18` 这类地方时，一行就够：
+
+```bash
+node bin/stata-copilot.mjs --doctor             # 先看它找到了什么、没找到时该设哪个
+node bin/stata-copilot.mjs --stata-home "E:/Apps/Stata18"
+```
+
+`--doctor` 会给出 `stata.home`、`stata.exe`、`stata.edition`、以及每项答案的来源 `source`，
+并在什么都没找到时用 `hint` 点名这两个开关。版本（MP/SE/BE）从实际存在的库文件读，所以
+Stata/SE 会按 SE 加载，而不是死等 MP 的 `mp-64.dll`。
 
 Windows + Stata 18 MP 实测：`node test/pystata.mjs` 13 条断言全部通过（许可证、`sysuse`、
 系数与 HTTP 引擎一致、`r(111)` 保留、忙状态、break、break 后会话可用）。
@@ -310,15 +328,15 @@ DSH 用户不用手动放：bundle 里已经带了这一行（`skill-filesystem`
 | `--endpoint` | `STATA_COPILOT_ENDPOINT` | `http://127.0.0.1:19522` |
 | `--driver` | `STATA_COPILOT_DRIVER` | `auto`；找到 Stata 与 Python 就用 `pystata`，否则 `http` |
 | `--stata-home` | `STATA_COPILOT_STATA_HOME` | 自动探测；`mp-64.dll` 所在目录（如 `D:/`） |
+| `--stata-exe` | `STATA_COPILOT_STATA_EXE` | 自动探测；`StataMP-64.exe`（只有后台作业用） |
 | `--python` | `STATA_COPILOT_PYTHON` | PATH 上的 `python`（须能 `import pystata`） |
-| `--edition` | `STATA_COPILOT_EDITION` | `mp`（`mp`/`se`/`be`） |
+| `--edition` | `STATA_COPILOT_EDITION` | 按实际存在的库文件自动判定（`mp`/`se`/`be`） |
 | `--mode` | `STATA_COPILOT_MODE` | `guarded` |
 | `--root` | `STATA_COPILOT_ROOTS` | 无（不限 cwd） |
 | `--timeout` | `STATA_COPILOT_TIMEOUT` | 每次调用 `120` 秒 |
 | `--max-output` | `STATA_COPILOT_MAX_OUTPUT` | 回显 `20000` 字符 |
 | `--no-ledger` | `STATA_COPILOT_NO_LEDGER` | 台账开启 |
 | `--log-level` | `STATA_COPILOT_LOG` | `info`（只走 stderr） |
-| `--stata-exe` | `STATA_COPILOT_STATA_EXE` | `D:\StataMP-64.exe`（后台作业用） |
 | `--job-timeout` | `STATA_COPILOT_JOB_TIMEOUT` | 每个后台作业 `1800` 秒 |
 
 参数也接受 `--flag=value`。未知参数会被拒绝而不是忽略；上表每一项都从同一处声明生成到 `--help`

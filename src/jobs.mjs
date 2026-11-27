@@ -31,8 +31,19 @@ import path from 'node:path';
 import { EngineError } from './errors.mjs';
 import { truncate } from './lib/content.mjs';
 import { parseFirstError } from './parsers/errors.mjs';
+import { findStataExe } from './stata-paths.mjs';
 
-export const DEFAULT_STATA_EXE = process.env.STATA_EXE ?? 'D:\\StataMP-64.exe';
+/**
+ * The executable used for batch runs. Resolved once, lazily: a machine with
+ * Stata installed somewhere unusual only has to set `--stata-exe` (or
+ * `STATA_COPILOT_STATA_EXE`) and the same answer is reused for every job.
+ */
+export function defaultStataExe() {
+  return process.env.STATA_EXE ?? findStataExe() ?? null;
+}
+
+/** Kept for callers that imported the old constant. */
+export const DEFAULT_STATA_EXE = defaultStataExe();
 
 /** Terminal states; `running` is the only non-terminal one. */
 export const JOB_STATES = ['running', 'ok', 'failed', 'timedout', 'killed', 'unknown'];
@@ -61,8 +72,8 @@ export class JobStore {
    * @param {{stataExe?: string, defaultTimeout?: number, log?: object,
    *          probe?: (() => Promise<unknown>) | null}} [options]
    */
-  constructor({ stataExe = DEFAULT_STATA_EXE, defaultTimeout = 1800, log = null, probe = null } = {}) {
-    this.stataExe = stataExe;
+  constructor({ stataExe = null, defaultTimeout = 1800, log = null, probe = null } = {}) {
+    this.stataExe = stataExe ?? defaultStataExe();
     this.defaultTimeout = defaultTimeout;
     this.logger = log;
     /** Cheapest call that proves the HTTP service answers (usually GET /status). */
@@ -122,6 +133,13 @@ export class JobStore {
    * @param {{file: string, body: string, cwd: string, label?: string|null, timeout?: number}} input
    */
   async submit({ file, body, cwd, label = null, timeout = this.defaultTimeout }) {
+    if (!this.stataExe) {
+      throw new EngineError(
+        'NOT_READY',
+        'No Stata executable found for background jobs. Set --stata-exe to StataMP-64.exe (or STATA_COPILOT_STATA_EXE), or run `--doctor` to see what was detected.',
+        { hint: 'Background jobs start their own Stata process, so they need the .exe even when the embedded engine works.' }
+      );
+    }
     const id = nextId();
     const doFile = `__job-${id}.do`;
     await writeFile(path.join(cwd, doFile), body, 'utf8');

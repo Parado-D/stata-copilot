@@ -1,6 +1,6 @@
 {
   "name": "stata-copilot",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "stata-copilot 让 AI 像研究助理那样跑 Stata：回归结果直接读成 b/se/t/p 与 95% 区间，被省略的变量一并点名；erase、shell、只读模式下的写盘命令在到达 Stata 前就被拦下；每次运行记进可复现台账。插补、bootstrap 这类长任务转独立进程，不再被「Stata is busy」掐断；写 do 文件之前先挑出 Stata 不报错的那些错——if 只测第一个观测、_n 没有前置排序、重复 gen 触发 r(110)。零运行时依赖，用它自带的 pystata 引擎直接加载 Stata，不需要第二个包。",
   "keywords": [
     "stata",

@@ -12,9 +12,10 @@
  */
 
 import { readdir } from 'node:fs/promises';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -93,7 +94,7 @@ check('engine implements status/execute/break', ['status', 'execute', 'break'].e
 check('unknown driver is refused', (() => { try { createEngine({ driver: 'nope' }); return false; } catch (e) { return e.code === 'UNKNOWN_TOOL' || e.code === 'BAD_REQUEST'; } })());
 check('auto is offered as a selector, not an engine', DRIVERS[0] === 'auto' && !ENGINES.auto, DRIVERS);
 check('an explicit driver is never second-guessed', resolveDriver({ driver: 'http' }).driver === 'http');
-const detection = detectPystata({ stataHome: 'C:/definitely/not/here' });
+const detection = detectPystata({ stataHome: 'C:/definitely/not/here', search: false, registry: false });
 check('detection explains itself when Stata is missing', detection.available === false && typeof detection.reason === 'string', detection.reason);
 
 console.log('error contracts');
@@ -125,6 +126,35 @@ check('open mode allows a shell escape', checkPolicy('! dir', { mode: 'open' }).
 check('rules cover shell and destructive verbs', !checkPolicy('shell dir', { mode: 'guarded' }).allowed && !checkPolicy('rmdir x', { mode: 'guarded' }).allowed);
 check('cwd outside roots is refused', checkCwd('D:\\elsewhere', ['C:\\work']).allowed === false);
 check('cwd inside a root is allowed', checkCwd('C:\\work\\proj', ['C:\\work']).allowed === true);
+
+console.log('Stata path discovery');
+// Users install Stata in places we cannot guess, so both the discovery and the
+// explicit overrides are part of the contract: pystata needs the folder with
+// mp-64.dll, background jobs need the .exe, and --doctor has to explain which
+// answer came from where.
+const paths = await import(pathToFileURL(join(ROOT, 'src/stata-paths.mjs')).href);
+const fakeHome = mkdtempSync(join(tmpdir(), 'stata-home-'));
+writeFileSync(join(fakeHome, 'se-64.dll'), '');
+writeFileSync(join(fakeHome, 'StataSE-64.exe'), '');
+const nestedHome = mkdtempSync(join(tmpdir(), 'stata-nested-'));
+writeFileSync(join(nestedHome, 'be-64.dll'), '');
+
+check('a home is trimmed to its root', paths.normalizeRoot('D:/') === 'D:' && paths.normalizeRoot('C:\\Stata\\') === 'C:\\Stata');
+check('an explicit home is accepted when it holds a library', paths.findStataHome({ stataHome: fakeHome, registry: false }) === fakeHome);
+check('edition comes from the library present', paths.editionFromHome(fakeHome) === 'se');
+check('an explicit exe is accepted when it exists', paths.findStataExe({ stataExe: join(fakeHome, 'StataSE-64.exe'), registry: false }) === fakeHome.replace(/\\/g, '/') + '/StataSE-64.exe');
+check('the exe is found inside a home', paths.findStataExe({ stataHome: fakeHome, registry: false }).endsWith('StataSE-64.exe'));
+check('edition comes from an exe name', paths.editionFromExe('C:/Stata/StataMP-64.exe') === 'mp');
+const registered = paths.registryStataExe({
+  versions: 18,
+  spawn: () => ({ status: 0, stdout: 'HKEY\\n    (Default)    REG_SZ    "D:\\StataMP-64.exe" "%1"\\n' }),
+});
+check('the registry shell verb yields the exe path', registered === null || registered.endsWith('.exe'), registered);
+const described = paths.describeStata({ stataHome: fakeHome, registry: false, search: false });
+check('describeStata reports home, exe and edition', described.home === fakeHome && described.exe?.endsWith('StataSE-64.exe') && described.edition === 'se');
+check('describeStata stays quiet when it found everything', described.hint === null);
+const missing = paths.describeStata({ stataHome: join(tmpdir(), 'no-stata-here'), stataExe: join(tmpdir(), 'no-stata.exe'), registry: false, search: false });
+check('describeStata explains how to configure a miss', typeof missing.hint === 'string' && missing.hint.includes('--stata-home'), missing.hint);
 
 console.log('DSH bundle contracts');
 // A carrier bundle is a manifest field plus one patch file; both must agree, or

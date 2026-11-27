@@ -17,6 +17,7 @@ import path from 'node:path';
 import { PACKAGE_NAME, VERSION, SERVER_INFO } from '../src/version.mjs';
 import { parseConfig, helpText, ConfigError } from '../src/config.mjs';
 import { createEngine, resolveDriver } from '../src/engines/index.mjs';
+import { describeStata } from '../src/stata-paths.mjs';
 import { createTools } from '../src/tools/index.mjs';
 import { createServer, serveStdio } from '../src/server.mjs';
 import { createLogger } from '../src/log.mjs';
@@ -46,7 +47,17 @@ async function main(argv) {
   }
 
   const log = createLogger({ level: action === 'doctor' ? 'error' : config.logLevel });
-  const resolved = resolveDriver({ driver: config.driver, stataHome: config.stataHome ?? undefined, python: config.python });
+  // One answer for both consumers: pystata needs the folder holding mp-64.dll,
+  // background jobs need the executable. Asking a second time would risk the
+  // two disagreeing after a user sets only one of them.
+  const stata = describeStata({ stataHome: config.stataHome, stataExe: config.stataExe });
+  const driverOptions = {
+    driver: config.driver,
+    stataHome: config.stataHome ?? stata.home,
+    stataExe: config.stataExe ?? stata.exe,
+    python: config.python,
+  };
+  const resolved = resolveDriver(driverOptions);
   if (config.driver === 'auto' && resolved.detection) {
     log.info(`driver auto → ${resolved.driver} (${resolved.detection.reason})`);
   }
@@ -57,9 +68,9 @@ async function main(argv) {
     engine = createEngine({
       driver: resolved.driver,
       endpoint: config.endpoint,
-      stataHome: resolved.detection?.stataHome ?? config.stataHome ?? undefined,
+      stataHome: resolved.detection?.stataHome ?? stata.home ?? undefined,
       python: resolved.detection?.python ?? config.python,
-      edition: config.edition,
+      edition: resolved.detection?.edition ?? stata.edition ?? config.edition,
       log,
     });
   } catch (err) {
@@ -68,12 +79,12 @@ async function main(argv) {
   }
 
   if (action === 'doctor') {
-    const report = await diagnose({ engine, config, resolved });
+    const report = await diagnose({ engine, config, resolved, stata });
     process.stdout.write(JSON.stringify(report, null, 2) + '\n');
     return report.reachable ? 0 : 1;
   }
 
-  const registry = createTools({ ...config, engine, log });
+  const registry = createTools({ ...config, stataExe: config.stataExe ?? stata.exe, engine, log });
   const server = createServer({ registry, log });
   log.info('serving MCP over stdio');
   serveStdio(server, { log, onExit: () => log.info('stdio closed, exiting') });
@@ -81,7 +92,8 @@ async function main(argv) {
 }
 
 /** `--doctor`: one JSON object explaining this installation, never throws. */
-async function diagnose({ engine, config, resolved }) {
+async function diagnose({ engine, config, resolved, stata }) {
+  const exe = config.stataExe ?? stata?.exe ?? null;
   const report = {
     name: PACKAGE_NAME,
     version: VERSION,
@@ -99,18 +111,27 @@ async function diagnose({ engine, config, resolved }) {
       defaultTimeout: config.defaultTimeout,
       maxOutputChars: config.maxOutputChars,
       persistLedger: config.persistLedger,
-      stataExe: config.stataExe,
+      stataHome: stata?.home ?? config.stataHome ?? null,
+      stataExe: exe,
+      stataEdition: stata?.edition ?? config.edition,
       jobTimeout: config.jobTimeout,
+    },
+    stata: {
+      home: stata?.home ?? null,
+      exe,
+      edition: stata?.edition ?? null,
+      source: stata?.source ?? null,
     },
     reachable: false,
     service: null,
     jobs: {
-      stataExeExists: existsSync(config.stataExe),
-      stataExe: config.stataExe,
+      stataExeExists: Boolean(exe) && existsSync(exe),
+      stataExe: exe,
       defaultTimeoutSeconds: config.jobTimeout,
-      hint: existsSync(config.stataExe)
+      hint: exe && existsSync(exe)
         ? 'Background jobs will spawn this executable (batch, /e /q).'
-        : 'Set --stata-exe to a real StataMP-64.exe path; background jobs cannot start.',
+        : stata?.hint
+          ?? 'Set --stata-exe to a real StataMP-64.exe path; background jobs cannot start.',
     },
     tools: null,
     hint: null,

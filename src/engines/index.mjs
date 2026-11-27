@@ -20,10 +20,18 @@
 
 import { existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { homedir } from 'node:os';
 
 import { EngineError } from '../errors.mjs';
+import {
+  describeStata,
+  editionFromDll,
+  editionFromHome,
+  findStataExe,
+  findStataHome,
+  normalizeRoot,
+} from '../stata-paths.mjs';
 import { HttpEngine, DEFAULT_ENDPOINT } from './http.mjs';
 import { PystataEngine } from './pystata.mjs';
 
@@ -39,26 +47,6 @@ export const ENGINE_DRIVERS = Object.keys(ENGINES);
 
 /** `auto` is a selector, not an engine: it resolves to one of ENGINE_DRIVERS. */
 export const DRIVERS = ['auto', ...ENGINE_DRIVERS];
-
-/** Folders that hold `mp-64.dll` / `se-64.dll` on a normal installation. */
-const STATA_HOME_CANDIDATES = [
-  'C:/Program Files/Stata18', 'C:/Program Files/Stata17', 'C:/Program Files/Stata16',
-  'C:/Program Files (x86)/Stata18', 'C:/Program Files (x86)/Stata17',
-  'C:/Stata18', 'C:/Stata17',
-  // A drive root is a legitimate layout: Stata may be installed as D:\mp-64.dll.
-  'C:/', 'D:/', 'E:/', 'F:/',
-];
-
-const DLL_NAMES = ['mp-64.dll', 'se-64.dll', 'be-64.dll'];
-
-/** First folder that actually contains a Stata shared library, or null. */
-export function findStataHome() {
-  for (const candidate of STATA_HOME_CANDIDATES) {
-    const root = candidate.replace(/[\\/]+$/, '');
-    if (DLL_NAMES.some((dll) => existsSync(`${root}/${dll}`))) return root;
-  }
-  return null;
-}
 
 /**
  * Python 3 that can import `pystata`. Explicit settings win; after that we try
@@ -87,32 +75,68 @@ export function findPython({ python = null } = {}) {
 /**
  * Can the standalone engine run here? Returns reasons either way so `--doctor`
  * and the startup log can say *why* a driver was chosen.
+ *
+ * The edition comes from the library that is actually present, so a Stata/SE
+ * install (`se-64.dll`) is loaded as SE instead of failing on `mp`.
  */
-export function detectPystata({ stataHome = null, python = null } = {}) {
-  const home = stataHome ?? process.env.STATA_COPILOT_STATA_HOME ?? findStataHome();
-  if (!home) return { available: false, stataHome: null, python: null, reason: 'no Stata installation found (no mp-64.dll)' };
+export function detectPystata({ stataHome = null, stataExe = null, python = null, search = true, registry = true } = {}) {
+  const home = findStataHome({ stataHome, stataExe, search, registry });
+  if (!home) {
+    return {
+      available: false,
+      stataHome: null,
+      stataExe: findStataExe({ stataExe, stataHome }),
+      edition: null,
+      python: null,
+      reason: 'no Stata installation found (no mp-64.dll, se-64.dll or be-64.dll)',
+    };
+  }
 
-  const utilities = `${String(home).replace(/[\\/]+$/, '')}/utilities/pystata`;
+  const utilities = `${normalizeRoot(home)}/utilities/pystata`;
   if (!existsSync(utilities)) {
-    return { available: false, stataHome: home, python: null, reason: `Stata found at ${home} but it has no utilities/pystata` };
+    return {
+      available: false,
+      stataHome: home,
+      stataExe: findStataExe({ stataExe, stataHome: home }),
+      edition: editionFromHome(home),
+      python: null,
+      reason: `Stata found at ${home} but it has no utilities/pystata`,
+    };
   }
   const interpreter = findPython({ python });
-  if (!interpreter) return { available: false, stataHome: home, python: null, reason: 'found Stata but no Python 3 that can import pystata' };
-  return { available: true, stataHome: home, python: interpreter, reason: 'Stata and pystata are available' };
+  if (!interpreter) {
+    return {
+      available: false,
+      stataHome: home,
+      stataExe: findStataExe({ stataExe, stataHome: home }),
+      edition: editionFromHome(home),
+      python: null,
+      reason: 'found Stata but no Python 3 that can import pystata',
+    };
+  }
+  return {
+    available: true,
+    stataHome: home,
+    stataExe: findStataExe({ stataExe, stataHome: home }),
+    edition: editionFromHome(home),
+    python: interpreter,
+    reason: 'Stata and pystata are available',
+  };
 }
 
 /**
  * Turn the configured driver into a concrete one. `auto` prefers the standalone
  * engine (nothing else to install) and falls back to a running HTTP service.
  */
-export function resolveDriver({ driver = 'auto', stataHome = null, python = null } = {}) {
+export function resolveDriver({ driver = 'auto', stataHome = null, stataExe = null, python = null } = {}) {
   if (driver !== 'auto') return { driver, detection: null };
-  const detection = detectPystata({ stataHome, python });
+  const detection = detectPystata({ stataHome, stataExe, python });
   return { driver: detection.available ? 'pystata' : 'http', detection };
 }
 
 export function createEngine({ driver = 'auto', ...options } = {}) {
-  const resolved = driver === 'auto' ? resolveDriver({ ...options, driver }).driver : driver;
+  const detection = driver === 'auto' || driver === 'pystata' ? detectPystata(options) : null;
+  const resolved = driver === 'auto' ? (detection?.available ? 'pystata' : 'http') : driver;
   const build = ENGINES[resolved];
   if (!build) {
     throw new EngineError('BAD_REQUEST', `Unknown engine driver "${driver}" (use ${DRIVERS.join('|')}).`, {
@@ -120,7 +144,13 @@ export function createEngine({ driver = 'auto', ...options } = {}) {
       available: DRIVERS,
     });
   }
-  const engine = build(options);
+  // A discovered home/edition is the default; an explicit setting still wins.
+  const engineOptions = {
+    ...options,
+    ...(detection?.stataHome ? { stataHome: options.stataHome ?? detection.stataHome } : {}),
+    ...(detection?.edition ? { edition: options.edition ?? detection.edition } : {}),
+  };
+  const engine = build(engineOptions);
   for (const method of ['status', 'execute', 'break']) {
     if (typeof engine[method] !== 'function') {
       throw new EngineError('BAD_RESPONSE', `Engine driver "${resolved}" does not implement ${method}().`, { driver: resolved });
@@ -131,3 +161,11 @@ export function createEngine({ driver = 'auto', ...options } = {}) {
 }
 
 export { HttpEngine, PystataEngine, DEFAULT_ENDPOINT };
+export {
+  describeStata,
+  editionFromDll,
+  editionFromHome,
+  findStataExe,
+  findStataHome,
+  normalizeRoot,
+};

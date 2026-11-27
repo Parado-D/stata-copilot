@@ -79,6 +79,7 @@
 │  parsers/*.mjs       转录 → 结构（r()/e()、系数行、变量画像、错误码）│
 │  engines/http.mjs    引擎 A：本地服务适配器（GET 重试、POST 不重试）  │
 │  engines/pystata.mjs 引擎 B：自带 Python 桥 + mp-64.dll，无外部服务   │
+│  stata-paths.mjs     Stata 在哪：注册表/常见目录/显式设置，一处回答   │
 └───────────────────────────┬──────────────────────────────────┘
                             │ HTTP 127.0.0.1:19522        ┌──────────────────────┐
 ┌───────────────────────────▼──────────────────────────────┐ │ D:\StataMP-64.exe    │
@@ -96,6 +97,13 @@
 `ensureReady`），不认具体后端。`--driver auto`（默认）先探测：找到 Stata 安装目录与能
 `import pystata` 的 Python，就用自带引擎；否则退回 `http`。探测结果连同理由写进 `--doctor`
 的 `config.driverResolved` 与 `config.autoDetection`。
+
+「Stata 在哪」由 `src/stata-paths.mjs` 一处回答，两个消费者共用同一份结果：内嵌引擎要的是
+含 `mp-64.dll` 的目录，后台作业要的是 `.exe`。顺序是显式设置 → 环境变量 → 另一个设置 →
+Windows 注册表（`Stata18Do\shell\open\command`）→ 常见目录（含 `D:\Stata18\` 这类嵌套）。
+`describeStata()` 返回 `{home, exe, edition, source, hint}`：`source` 说明答案来自哪一步，
+`hint` 在什么都没找到时点名 `--stata-home`/`--stata-exe`。版本（MP/SE/BE）从实际存在的库文件
+读取，因此 Stata/SE 安装会按 SE 加载。
 
 | 维度 | `auto` → `pystata`（默认） | `http`（可选） |
 |---|---|---|
