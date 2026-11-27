@@ -4,7 +4,21 @@ All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.2]
+
+### Changed — the one-line pitch reads like a person wrote it
+
+The plugin list is the first thing anyone sees, and the old description was a feature
+inventory ("MCP server + skills that turn an AI coding agent into…"). It now leads with
+what you actually get in Chinese, in the register the other DSH plugins use: results as
+numbers rather than a table to squint at, dangerous commands stopped before Stata sees
+them, long imputations moved off the busy session, silent Stata mistakes named before the
+do-file runs.
+
+Same treatment for the skill's frontmatter (Chinese first, English trigger phrases kept)
+and the README subtitle.
+
+## [0.4.1]
 
 ### Added — Chinese documentation
 

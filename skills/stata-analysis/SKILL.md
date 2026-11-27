@@ -1,6 +1,6 @@
 ---
 name: stata-analysis
-description: Run an econometric analysis in Stata the way a careful research assistant would — plan, profile the data, scaffold numbered do-files, estimate with structured results, export a publication table and figure, and leave a reproducible run ledger. Use when the user asks for a Stata analysis, a regression, descriptive statistics, a replication, a table or figure "in Stata", or says 帮我跑个回归 / 用 Stata 分析一下 / 做个描述统计 / 出个表.
+description: 用 Stata 做一份经得起复核的计量分析：先写计划，摸清数据，按编号写 do 文件（导入→清洗→描述→建模→出图），用结构化结果估计，导出三线表与图，并把每一步留进可复现台账。Stata analysis the way a careful research assistant would — plan, profile the data, scaffold numbered do-files, estimate with structured results, export a publication table and figure, and leave a reproducible run ledger. Use when the user asks for a Stata analysis, a regression, descriptive statistics, a replication, a table or figure "in Stata", or says 帮我跑个回归 / 用 Stata 分析一下 / 做个描述统计 / 出个表.
 ---
 
 # stata-analysis

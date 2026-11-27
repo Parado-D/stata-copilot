@@ -5,6 +5,7 @@
 **English** · [中文说明](README.zh-CN.md)
 
 **An MCP server and skill pack that turn a coding agent into a disciplined Stata analyst.**
+**让 AI 像研究助理那样跑 Stata：结果读成数字，危险命令碰不到，每一步都留得下。**
 
 Agents can already type `regress y x` into a terminal. What they cannot do is read Stata's
 transcript reliably, tell a coefficient from a footnote, keep their hands off `erase`, or leave
