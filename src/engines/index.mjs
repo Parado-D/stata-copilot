@@ -20,9 +20,13 @@
 
 import { EngineError } from '../errors.mjs';
 import { HttpEngine, DEFAULT_ENDPOINT } from './http.mjs';
+import { PystataEngine } from './pystata.mjs';
 
 /** @type {Record<string, (options: object) => object>} */
 export const ENGINES = {
+  /** Stata inside the MCP server's own process tree (no extra service). */
+  pystata: (options) => new PystataEngine(options),
+  /** A running `stata-ai-skill` service over HTTP. */
   http: (options) => new HttpEngine(options),
 };
 
@@ -45,4 +49,4 @@ export function createEngine({ driver = 'http', ...options } = {}) {
   return engine;
 }
 
-export { HttpEngine, DEFAULT_ENDPOINT };
+export { HttpEngine, PystataEngine, DEFAULT_ENDPOINT };

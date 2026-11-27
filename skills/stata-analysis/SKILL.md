@@ -19,6 +19,12 @@ Never report a number that exists only in a transcript.
 Call `stata_status`. If it returns `OFFLINE` or `NOT_READY`, stop and report the exact endpoint
 and the setup hint; do not attempt to install or start Stata yourself.
 
+`stata_status` also tells you which engine answered: `http` (a `stata-ai-skill` service owns the
+session) or `pystata` (this package loaded Stata itself). The tools are identical either way, but two
+differences matter when something goes wrong: under `pystata` a second `stata_run` while one is
+running comes back as `BUSY` rather than a timeout, and `stata_graphs` cannot pull graphs the engine
+did not capture — export them with `graph export x.png` and pass the file.
+
 ## Step 1 — plan (before touching Stata)
 
 Write `analysis/00-plan.md`, three short sections:

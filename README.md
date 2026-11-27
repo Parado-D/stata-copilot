@@ -142,6 +142,48 @@ node examples/paper/run.mjs        # chapters through the MCP server
 The same five files also run in a plain Stata session (`do analysis/run-all.do`), which is the
 point: the agent layer must not be the only way to reproduce the paper.
 
+## Two ways to run Stata
+
+One server, two interchangeable engines. The tool surface — 16 tools, the policy gate, the ledger,
+`stata_model`'s numbers — is identical either way; only who owns the Stata session changes.
+
+| | `--driver http` (default) | `--driver pystata` (standalone) |
+|---|---|---|
+| Stata runs in | the `stata-ai-skill` service on `127.0.0.1:19522` | a Python child that this package starts |
+| Extra software | that service | Python 3 + the `pystata` that ships with Stata |
+| `stata_break` | HTTP `POST /break` | `StataSO_SetBreak` on `mp-64.dll` |
+| Install | two packages | this one only |
+
+### Standalone mode: no second package
+
+Stata 17+ ships an official embedded engine: `<Stata home>/utilities/pystata` plus `mp-64.dll`.
+`--driver pystata` loads it in a long-lived child process, so the session (loaded data, `estimates`,
+macros) survives between tool calls exactly as before:
+
+```bash
+node bin/stata-copilot.mjs --driver pystata --stata-home "D:/" --python "C:/Python312/python.exe"
+```
+
+or through the environment:
+
+```bash
+set STATA_COPILOT_DRIVER=pystata
+set STATA_COPILOT_STATA_HOME=D:\
+set STATA_COPILOT_PYTHON=C:\Python312\python.exe
+```
+
+- `--stata-home` is the folder holding `mp-64.dll` (`D:/` in the example). The bridge adds
+  `<home>/utilities` to `PYTHONPATH` itself, so `import pystata` resolves without setup.
+- `stata_break` is real in this mode: the bridge calls the DLL's `StataSO_SetBreak` from its stdin
+  thread while Stata is still inside the previous command. A `while 1 { }` loop stops in about
+  three seconds and the session stays usable.
+- No HTTP hop means no 300-second artificial ceiling; each call carries its own timeout, and
+  background jobs (`stata_job_*`) keep working — they spawn a separate batch process either way.
+
+Verified on Windows with Stata 18 MP: `node test/pystata.mjs` runs 13 live assertions (licence,
+`sysuse`, coefficients identical to the HTTP engine, `r(111)` preserved, busy state, break, session
+survives the break).
+
 ## Tools
 
 | Tool | What it is for |
@@ -307,7 +349,10 @@ analysis rather than a one-off command.
 | Flag | Env | Default |
 |---|---|---|
 | `--endpoint` | `STATA_COPILOT_ENDPOINT` | `http://127.0.0.1:19522` |
-| `--driver` | `STATA_COPILOT_DRIVER` | `http` (the engine adapter) |
+| `--driver` | `STATA_COPILOT_DRIVER` | `http`; `pystata` runs Stata in-process (see above) |
+| `--stata-home` | `STATA_COPILOT_STATA_HOME` | none; required by `--driver pystata` (`D:/`) |
+| `--python` | `STATA_COPILOT_PYTHON` | `python` on PATH (must import `pystata`) |
+| `--edition` | `STATA_COPILOT_EDITION` | `mp` (`mp`/`se`/`be`) |
 | `--mode` | `STATA_COPILOT_MODE` | `guarded` |
 | `--root` | `STATA_COPILOT_ROOTS` | none (no cwd restriction) |
 | `--timeout` | `STATA_COPILOT_TIMEOUT` | `120` s per call |
@@ -341,6 +386,8 @@ src/session.mjs         gate → execute → truncate → ledger; the run contra
 src/jobs.mjs            background jobs: spawn Stata in batch mode, poll, kill, finalise from the log
 src/policy.mjs          safety rules as data (RULES/WARNINGS), modes, cwd allow-list
 src/engines/http.mjs    HTTP adapter for the local service; src/engines/index.mjs registers drivers
+src/engines/pystata.mjs standalone engine: spawns the Python bridge, maps JSON lines to the contract
+bridge/stata_bridge.py  loads mp-64.dll via pystata; reader thread answers break, worker thread runs
 src/parsers/*.mjs       transcripts → numbers (macros, model, profile, distributions, errors)
 src/lib/*.mjs           text/image content helpers, schema validation
 src/config.mjs          flags + env + --help, all from one table
@@ -356,9 +403,10 @@ touches three; neither requires editing the protocol. See `docs/EXTENDING.md` fo
 ## Development
 
 ```bash
-npm test                  # contracts (45) + offline (35) — no Stata needed
+npm test                  # contracts (45) + offline (50) — no Stata needed
 npm run test:contracts    # structural checks only: module graph, tool definitions, config
-npm run test:stata        # live Stata session, 40 assertions
+npm run test:stata        # live Stata session over HTTP, 48 assertions
+npm run test:pystata      # live standalone engine, 13 assertions (needs --stata-home + python)
 npm run demo:paper        # the chaptered study, end to end, on the live session
 npm run demo:jobs         # background jobs: submit, watch, kill, list
 npm run check             # syntax + contracts, what pre-commit runs
@@ -375,7 +423,7 @@ killed.
 
 ## Roadmap
 
-- [ ] `spawn` engine adapter — manage the Stata session directly, no external service.
+- [x] `pystata` engine adapter — the session runs inside this server, no external service.
 - [ ] `stata_table` — build an `esttab` table from a list of named estimates, returned as CSV + Markdown.
 - [ ] Panel / IV diagnostics: warn when an `xtset` variable is missing, or when a model is fitted
       without `vce(cluster ...)` on clustered data.
@@ -387,6 +435,12 @@ killed.
 The engine contract (`/status`, `/execute`, `/break`, graph capture) comes from
 [stata-ai-skill](https://github.com/ZihaoVistonWang/Stata-AI-Skill), which manages the native Stata
 session. This project is the agent-facing layer: structure, safety, ledger, and skills.
+
+The standalone engine uses Stata's own embedded interface: `pystata` and `mp-64.dll` ship with
+Stata and are the property of StataCorp; this project only calls them, through the documented
+`pystata` API and — for `break` alone — the `StataSO_SetBreak` export of the shared library. It is
+an alternative to the `http` engine, not a replacement for a Stata licence: running it still
+requires an installed, licensed Stata. See `NOTICE` for the full attribution list.
 
 ## 中文速用
 

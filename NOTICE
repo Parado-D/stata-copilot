@@ -1,0 +1,69 @@
+stata-copilot
+=============
+
+MIT licensed, © 2026 the stata-copilot authors.
+
+This project calls other people's software. What it calls, and on what terms:
+
+Stata, pystata, mp-64.dll — StataCorp LLC
+-----------------------------------------
+The `pystata` engine (`bridge/stata_bridge.py`, `src/engines/pystata.mjs`) does
+not ship Stata. It imports the `pystata` package and loads the shared library
+(`mp-64.dll`, `se-64.dll` or `be-64.dll`) that come with a user's own Stata
+installation, at `<Stata home>/utilities/pystata`. Stata, pystata and those
+libraries are the property of StataCorp LLC and are governed by the Stata
+licence; running this engine requires a licensed Stata installation.
+
+Two interface facts worth stating plainly:
+
+* `pystata`'s `config.init()`, `stata.run()` and `config.set_output_file()` are
+  documented by StataCorp and are used exactly as documented.
+* `StataSO_SetBreak` is an *undocumented* export of the same shared library. It
+  is called in one place only, from the bridge's stdin thread, to interrupt a
+  command that is already running — the same mechanism Stata's own automation
+  interfaces use. Because the export is undocumented, treat it as best effort:
+  if a future Stata release removes it, `stata_break` degrades to "no
+  interruption" and nothing else changes. The engine test (`test/pystata.mjs`)
+  fails loudly in that case.
+
+stata-ai-skill — ZihaoVistonWang
+-------------------------------
+The `http` engine speaks the HTTP contract of
+[stata-ai-skill](https://github.com/ZihaoVistonWang/Stata-AI-Skill) (MIT):
+`GET /status`, `POST /execute`, `POST /break`, `POST /shutdown`, and the graph
+capture behaviour. That project remains a supported way to run this server, and
+its session manager, setup wizard and article search are not reimplemented here.
+The engine adapter is deliberately thin so either side can evolve.
+
+claude-code-my-workflow — Pedro Sant'Anna
+-----------------------------------------
+The workflow this project's skill pack encodes — numbered `analysis/NN-*.do`
+stages, an `output/` tree, quality gates before a result is reported, a
+`quality_reports/`-style audit trail — is modelled on
+[pedrohcgs/claude-code-my-workflow](https://github.com/pedrohcgs/claude-code-my-workflow)
+(MIT). The Stata tool surface here is different (structured results, lint,
+signatures, background jobs), but the discipline is theirs.
+
+Stata Tips, Fourth Edition (Nicholas J. Cox, ed.)
+--------------------------------------------------
+Three behaviours in this project were chosen because the *Stata Journal* "Stata
+Tips" series documents them as silent failure modes rather than errors:
+
+* `set varabbrev off` and exact variable names — Stata Tip 22,
+  doi:10.1177/1536867X0500500314
+* `datasignature` as a data fingerprint — Stata Tip 35,
+  doi:10.1177/1536867X0600600312
+* computing t, p and confidence intervals from `e(b)`/`e(V)` — Stata Tip 53,
+  doi:10.1177/1536867X0800700408
+* `missing()` taking an expression list, not a varlist — Stata Tip 86,
+  doi:10.1177/1536867X1001000210
+* `if` as a command testing one observation — Stata Tip 152,
+  doi:10.1177/1536867X231175349
+
+The `stata_lint` rules name the tip they come from in their `hint` text.
+
+Model Context Protocol
+----------------------
+The protocol implementation (newline-delimited JSON-RPC 2.0 over stdio) follows
+the MCP specification, https://modelcontextprotocol.io. No MCP SDK code is
+vendored; `src/server.mjs` is a small hand-written implementation.

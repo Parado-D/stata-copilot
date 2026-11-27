@@ -84,25 +84,36 @@ truncation limit and the ledger — the three things that make runs comparable a
 
 ## 2. Add an engine
 
-An engine is any object with `status()`, `execute()`, `break()`. The `http` driver talks to the local
-`stata-ai-skill` service; a `spawn` driver would own the Stata process itself; a `remote` driver
-would proxy a lab machine. Tools never learn which one is in use.
+An engine is any object with `status()`, `execute()`, `break()`. Two are shipped, and they cover the
+two shapes an adapter can take:
+
+- `src/engines/http.mjs` — a thin client. Someone else owns the session; this file only speaks JSON
+  over HTTP (`stata-ai-skill` on `127.0.0.1:19522`).
+- `src/engines/pystata.mjs` + `bridge/stata_bridge.py` — an owner. It spawns a long-lived Python child
+  that loads Stata itself, and maps newline-delimited JSON onto the same contract. Read this one when
+  your backend needs a process you start, because it shows the two problems that always come up:
+  *concurrency* (a second request while Stata is running → `BUSY`, not a silent queue) and
+  *interruption* (`break` must not wait behind the command it is meant to stop, so it is answered on
+  a separate thread).
+
+A `remote` driver proxying a lab machine would look like the `http` one. Tools never learn which is in
+use.
 
 ### Step 1 — implement the contract
 
-`src/engines/spawn.mjs`:
+`src/engines/remote.mjs`:
 
 ```js
-export class SpawnEngine {
-  constructor({ stataPath = 'stata-mp', endpoint = null } = {}) { /* ... */ }
+export class RemoteEngine {
+  constructor({ baseUrl = 'http://lab-box:8700', endpoint = null } = {}) { /* ... */ }
 
   /** @returns {Promise<object>} at least {status, busy, sessionActive, config:{stataPath}} */
-  async status() { /* spawn `stata -e` once, cache the build string */ }
+  async status() { /* ask the lab box which build it is running */ }
 
   /** @returns {Promise<{success, returnCode, output, error, graphs}>} */
-  async execute({ code, cwd, timeout }) { /* write a temp .do, run it, read the .smcl/log */ }
+  async execute({ code, cwd, timeout }) { /* forward the code, return the transcript */ }
 
-  async break() { /* send the interrupt your platform supports */ }
+  async break() { /* forward the interrupt */ }
 }
 ```
 
@@ -123,8 +134,9 @@ adapter fails at startup.
 ### Step 3 — prove it
 
 ```bash
-node bin/stata-copilot.mjs --driver spawn --doctor   # reachability + the build it found
-npm run test:stata                                   # the same smoke suite, new backend
+node bin/stata-copilot.mjs --driver remote --doctor    # reachability + the build it found
+npm run test:stata                                     # the same smoke suite, new backend
+node test/pystata.mjs                                  # if your adapter owns a process, copy this
 ```
 
 The smoke suite is engine-agnostic on purpose: if it passes, the tool contract holds for that

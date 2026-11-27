@@ -100,6 +100,45 @@ node bin/stata-copilot.mjs --doctor
 打印一个 JSON：配置、引擎是否可达、服务找到的 Stata 版本、授权状态、工具清单；服务连不上时退出码
 非零。贴进 issue 基本能一次答完「它不工作」。
 
+## 两种跑法：连服务，或者自带引擎
+
+同一个服务器、两个可互换的引擎。16 个工具、策略门禁、台账、`stata_model` 的数字都一样，区别只在
+**Stata 会话归谁管**。
+
+| | `--driver http`（默认） | `--driver pystata`（自带引擎） |
+|---|---|---|
+| Stata 跑在哪 | `stata-ai-skill` 服务（`127.0.0.1:19522`） | 本包自己起的 Python 子进程 |
+| 额外要装什么 | 那个服务 | Python 3 + Stata 自带的 `pystata` |
+| `stata_break` 怎么实现 | HTTP `POST /break` | `mp-64.dll` 的 `StataSO_SetBreak` |
+| 安装量 | 两个包 | 只需要这一个 |
+
+### 自带引擎：不依赖第二个包
+
+Stata 17 起自带官方嵌入接口：`<Stata 安装目录>/utilities/pystata` 与 `mp-64.dll`。
+`--driver pystata` 把它加载在一个长期存活的子进程里，数据、`estimates`、宏都照样跨调用保留：
+
+```bash
+node bin/stata-copilot.mjs --driver pystata --stata-home "D:/" --python "C:/Python312/python.exe"
+```
+
+也可以走环境变量：
+
+```bash
+set STATA_COPILOT_DRIVER=pystata
+set STATA_COPILOT_STATA_HOME=D:\
+set STATA_COPILOT_PYTHON=C:\Python312\python.exe
+```
+
+- `--stata-home` 指 `mp-64.dll` 所在目录（例子里是 `D:/`）。桥会自己把 `<home>/utilities`
+  加进 `PYTHONPATH`，不用手工配 `import pystata`。
+- 这个模式下 `stata_break` 是真的中断：桥的 stdin 线程在 Stata 还在上一条命令里时就调用 DLL 的
+  `StataSO_SetBreak`。`while 1 { }` 这类死循环约三秒停下，且会话仍然可用。
+- 少了 HTTP 那一跳，也就没有「300 秒就 409」的天花板；每次调用按自己的超时算，后台作业
+  （`stata_job_*`）照旧可用——它本来就另起一个 batch 进程。
+
+Windows + Stata 18 MP 实测：`node test/pystata.mjs` 13 条断言全部通过（许可证、`sysuse`、
+系数与 HTTP 引擎一致、`r(111)` 保留、忙状态、break、break 后会话可用）。
+
 ## 工具（16 个）
 
 | 工具 | 用途 |
@@ -261,7 +300,10 @@ DSH 用户不用手动放：bundle 里已经带了这一行（`skill-filesystem`
 | 参数 | 环境变量 | 默认 |
 |---|---|---|
 | `--endpoint` | `STATA_COPILOT_ENDPOINT` | `http://127.0.0.1:19522` |
-| `--driver` | `STATA_COPILOT_DRIVER` | `http`（引擎适配器） |
+| `--driver` | `STATA_COPILOT_DRIVER` | `http`；`pystata` 表示 Stata 跑在进程内 |
+| `--stata-home` | `STATA_COPILOT_STATA_HOME` | 无；`pystata` 模式必填（如 `D:/`） |
+| `--python` | `STATA_COPILOT_PYTHON` | PATH 上的 `python`（须能 `import pystata`） |
+| `--edition` | `STATA_COPILOT_EDITION` | `mp`（`mp`/`se`/`be`） |
 | `--mode` | `STATA_COPILOT_MODE` | `guarded` |
 | `--root` | `STATA_COPILOT_ROOTS` | 无（不限 cwd） |
 | `--timeout` | `STATA_COPILOT_TIMEOUT` | 每次调用 `120` 秒 |
@@ -287,6 +329,8 @@ src/policy.mjs          把安全规则写成数据（RULES/WARNINGS），模式
 src/lint.mjs            静态检查规则（8 条）与 lintCode()
 src/signature.mjs       datasignature 指纹读取与比较
 src/engines/http.mjs    本地服务的 HTTP 适配器；src/engines/index.mjs 注册驱动
+src/engines/pystata.mjs 自带引擎：起 Python 桥，把 JSON 行映射成引擎契约
+bridge/stata_bridge.py  用 pystata 加载 mp-64.dll；读线程管 break，工作线程跑 Stata
 src/parsers/*.mjs       回显 → 数字（宏、模型、数据集描述、分布函数、首个错误、指纹）
 src/lib/*.mjs           文本/图片内容助手、schema 校验
 src/config.mjs          参数 + 环境变量 + --help，全部来自一张表
@@ -305,6 +349,7 @@ examples/jobs.mjs       后台作业的客户端视角：提交、轮询、看�
 npm test                  # contracts(45) + offline(50) —— 不需要 Stata
 npm run test:contracts    # 只做结构检查：模块图、工具定义、配置
 npm run test:stata        # 真实 Stata 会话，48 条断言
+npm run test:pystata      # 自带引擎实测，13 条断言（需 --stata-home 与 python）
 npm run demo:paper        # 分章示例端到端，跑在真实会话上
 npm run demo:jobs         # 后台作业：提交、观察、杀、列表
 npm run check             # 语法 + contracts，pre-commit 跑的就是它
@@ -320,7 +365,7 @@ Node 不在 `PATH` 上的时候（例如本机是 DSH 自带 runtime），用绝
 
 ## 路线图
 
-- [ ] `spawn` 引擎适配器——直接管理 Stata 会话，不再依赖外部服务。
+- [x] `pystata` 引擎——Stata 会话跑在本包自己的进程里，不再依赖外部服务。
 - [ ] `stata_table`——从一组命名的估计结果生成 `esttab` 表，返回 CSV + Markdown。
 - [ ] 面板 / IV 诊断：`xtset` 变量缺失时告警；聚类数据上拟合却没有 `vce(cluster ...)` 时告警。
 - [ ] CI 覆盖 Mac / Linux（Stata 按机器授权，CI 用录制的回显跑解析与协议测试）。
@@ -330,6 +375,11 @@ Node 不在 `PATH` 上的时候（例如本机是 DSH 自带 runtime），用绝
 引擎契约（`/status`、`/execute`、`/break`、图捕获）来自
 [stata-ai-skill](https://github.com/ZihaoVistonWang/Stata-AI-Skill)，由它管理原生 Stata 会话。
 本项目是面向 agent 的那一层：结构、安全、台账与技能。
+
+自带引擎用的是 Stata 官方的嵌入接口：`pystata` 与 `mp-64.dll` 随 Stata 发行、版权属 StataCorp；
+本项目只调用它们——常规执行走文档化的 `pystata` API，只有 `break` 用到共享库的
+`StataSO_SetBreak` 导出。它是 `http` 引擎的替代方案，不是许可证的替代品：跑它仍然需要一份
+已安装、已授权的 Stata。完整出处见 `NOTICE`。
 
 ## License
 

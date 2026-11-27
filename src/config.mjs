@@ -40,6 +40,21 @@ export const CONFIG_OPTIONS = [
     help: `Engine backend (${ENGINE_DRIVERS.join('|')}).`,
   },
   {
+    key: 'stataHome', flag: '--stata-home', placeholder: '<dir>', env: 'STATA_COPILOT_STATA_HOME',
+    default: null, type: 'string',
+    help: 'Stata installation root (the folder holding mp-64.dll); required by --driver pystata, e.g. D:/',
+  },
+  {
+    key: 'python', flag: '--python', placeholder: '<exe>', env: 'STATA_COPILOT_PYTHON',
+    default: 'python', type: 'string',
+    help: 'Python 3 interpreter that can import pystata (pystata engine only).',
+  },
+  {
+    key: 'edition', flag: '--edition', placeholder: '<flavour>', env: 'STATA_COPILOT_EDITION',
+    default: 'mp', type: 'string', choices: ['mp', 'se', 'be'],
+    help: 'Stata flavour loaded by the pystata engine.',
+  },
+  {
     key: 'mode', flag: '--mode', placeholder: '<mode>', env: 'STATA_COPILOT_MODE',
     default: 'guarded', type: 'string', choices: MODES,
     help: 'Policy mode: open allows everything, guarded refuses shell/destructive commands, readonly also refuses disk writes.',

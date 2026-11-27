@@ -4,6 +4,40 @@ All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0]
+
+### Added — a Stata engine of its own, so the package stands alone
+
+`--driver pystata` runs the session inside this server: a Python child loads Stata's own embedded
+interface (`<Stata home>/utilities/pystata` + `mp-64.dll`), and the 16 tools work unchanged. No
+`stata-ai-skill` service, no HTTP hop, no second install. The `http` driver stays the default and
+keeps working exactly as before.
+
+- `bridge/stata_bridge.py` — two threads on purpose. The reader thread answers `status` from a
+  startup snapshot and executes `break` immediately, because a break that queues behind the command
+  it should interrupt is not a break; the worker thread runs Stata, one command at a time, capturing
+  the transcript through `config.set_output_file`. Stata's embedded engine writes to file descriptor
+  1 directly, so the bridge hands fd 1 to stderr and keeps a private copy for the JSON frames.
+- `src/engines/pystata.mjs` — spawns that child, maps JSON lines onto the engine contract, and turns
+  a timeout into `break` + a short grace period, so a caller still receives the partial transcript.
+- `stata_break` is real in this mode: `StataSO_SetBreak` interrupts a running loop in ~3 s and the
+  session stays usable. `r(NNN)` return codes survive the trip (pystata raises `SystemError`; the
+  bridge reads the code out of it rather than trusting `_rc`).
+- `--stata-home`, `--python`, `--edition` (`STATA_COPILOT_STATA_HOME`, `STATA_COPILOT_PYTHON`,
+  `STATA_COPILOT_EDITION`), and `--doctor` now reports which Stata build the chosen engine loaded.
+- `test/pystata.mjs` — 13 live assertions: licence, `sysuse`, coefficients identical to the HTTP
+  engine, `r(111)` preserved, busy state, break, session survives the break.
+- `NOTICE` — who owns what: StataCorp's `pystata`/`mp-64.dll` (and the fact that `StataSO_SetBreak`
+  is an undocumented export, used for `break` only), `stata-ai-skill`'s HTTP contract,
+  `claude-code-my-workflow`'s workflow shape, and the *Stata Tips* DOIs behind the lint rules.
+
+### Changed
+
+- `BUSY` is a first-class error code: a second `stata_run` while the pystata bridge is executing is
+  refused with an actionable message instead of a silent queue.
+- README / README.zh-CN: a "two ways to run Stata" table, the standalone recipe, and the engine
+  files added to the code map.
+
 ## [0.4.2]
 
 ### Changed — the one-line pitch reads like a person wrote it

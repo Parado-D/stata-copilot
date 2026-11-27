@@ -77,7 +77,8 @@
 │  jobs.mjs            后台作业：独立 Stata 批处理进程，轮询/杀灭   │
 │  policy.mjs          命令词级策略 + cwd 白名单                   │
 │  parsers/*.mjs       转录 → 结构（r()/e()、系数行、变量画像、错误码）│
-│  engines/http.mjs    引擎适配器（GET 重试、POST 不重试）          │
+│  engines/http.mjs    引擎 A：本地服务适配器（GET 重试、POST 不重试）  │
+│  engines/pystata.mjs 引擎 B：自带 Python 桥 + mp-64.dll，无外部服务   │
 └───────────────────────────┬──────────────────────────────────┘
                             │ HTTP 127.0.0.1:19522        ┌──────────────────────┐
 ┌───────────────────────────▼──────────────────────────────┐ │ D:\StataMP-64.exe    │
@@ -88,6 +89,28 @@
                             │                                          │
                      Stata 18 MP（交互会话）                    Stata 18 MP（批处理）
 ```
+
+### 引擎：两套后端，一份契约
+
+工具只认 `src/engines/index.mjs` 里的契约（`status` / `execute` / `break` / `shutdown` /
+`ensureReady`），不认具体后端。因此同一个 16 工具面可以挂在两种执行方式上：
+
+| 维度 | `http`（默认） | `pystata`（自带） |
+|---|---|---|
+| 会话宿主 | `stata-ai-skill` 服务进程 | 本包的 Python 子进程 |
+| 加载方式 | 服务内部以 `mp-64.dll` 嵌入 | `pystata.config.init()` 加载同一个 DLL |
+| 中断 | `POST /break` | `StataSO_SetBreak`（DLL 导出） |
+| 额外安装 | 需要那个服务 | 只需要 Python 3 |
+| 图捕获 | 服务把 `graph export` 改写成 SVG→PNG | 走 Stata 原生导出（`graph export x.png`） |
+
+`http` 之所以要额外一层，是因为它把「会话生命周期 + 许可证 + 图捕获」交给了一个成熟的服务；
+代价是服务对并发是单线程且不排队，长命令期间新请求立刻 409。`pystata` 之所以能去掉 300 秒上限，
+是因为没有 HTTP 这一跳，每次调用按自己的 timeout 走。
+
+两个后端都保留，是因为它们覆盖不同的人群：只想装一个包的人用 `pystata`，已经把
+`stata-ai-skill` 用起来（含它的 setup 向导、文章检索）的人继续用 `http`。测试也对两份分别成立：
+`test/smoke.mjs` 打 HTTP，`test/pystata.mjs` 打自带引擎，两边都校验同一组系数（`b_mpg` 与
+`se_mpg` 对到 1e-6）。
 
 ### 关键实现选择
 

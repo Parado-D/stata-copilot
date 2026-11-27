@@ -35,6 +35,8 @@ export const ERROR_CODES = Object.freeze({
   UNKNOWN_TOOL: 'UNKNOWN_TOOL',
   /** A tool module is malformed — a programming error, not a user error. */
   TOOL_DEFINITION: 'TOOL_DEFINITION',
+  /** The engine is already executing something; break it or wait. */
+  BUSY: 'BUSY',
 });
 
 const KNOWN = new Set(Object.values(ERROR_CODES));

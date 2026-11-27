@@ -46,11 +46,18 @@ async function main(argv) {
   }
 
   const log = createLogger({ level: action === 'doctor' ? 'error' : config.logLevel });
-  log.info(`${PACKAGE_NAME} ${VERSION} (${action}) endpoint=${config.endpoint} mode=${config.mode}`);
+  log.info(`${PACKAGE_NAME} ${VERSION} (${action}) driver=${config.driver} endpoint=${config.endpoint} mode=${config.mode}`);
 
   let engine;
   try {
-    engine = createEngine({ driver: config.driver, endpoint: config.endpoint });
+    engine = createEngine({
+      driver: config.driver,
+      endpoint: config.endpoint,
+      stataHome: config.stataHome ?? undefined,
+      python: config.python,
+      edition: config.edition,
+      log,
+    });
   } catch (err) {
     log.error(`cannot create engine: ${err.message}`);
     return 2;
