@@ -58,6 +58,19 @@ Each file starts with `version 18` (or the session's `c(version)`), `clear all`,
 and a `log using` line into `output/logs/`. Run each with `stata_run_do { file, cwd }` and fix
 errors in the file — not by patching the session ad hoc.
 
+**If a chapter is slow** (imputation, bootstrap, thousands of loops), do not raise the timeout and
+do not split the file to fit a limit: hand it to `stata_job_submit { file, label }`. A job runs in
+its own Stata process, so the interactive session stays usable, and the tool returns a job id at
+once. Then poll `stata_job_status` every ~30 s, read progress with `stata_job_log`, and use
+`stata_job_kill` if it is clearly stuck. When it ends, treat its state like any run:
+
+- `ok` → the chapter finished; read the log's tail to confirm the last step you expected actually ran.
+- `failed` → `failure.command` and `failure.code` point at the line; fix the do-file, resubmit.
+- `timedout` → the ceiling was real (default 30 min). Either the job is genuinely that long —
+  say so and raise `timeout` — or it is stuck in a loop you should kill.
+
+Never report "it is still running" without one of these calls behind it.
+
 Every estimation that will appear in a table gets `estimates store <name>`, so step 5 can build
 the table from named estimates.
 

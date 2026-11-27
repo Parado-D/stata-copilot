@@ -11,6 +11,7 @@
  */
 
 import { fileURLToPath } from 'node:url';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 
 import { PACKAGE_NAME, VERSION, SERVER_INFO } from '../src/version.mjs';
@@ -85,9 +86,19 @@ async function diagnose({ engine, config }) {
       defaultTimeout: config.defaultTimeout,
       maxOutputChars: config.maxOutputChars,
       persistLedger: config.persistLedger,
+      stataExe: config.stataExe,
+      jobTimeout: config.jobTimeout,
     },
     reachable: false,
     service: null,
+    jobs: {
+      stataExeExists: existsSync(config.stataExe),
+      stataExe: config.stataExe,
+      defaultTimeoutSeconds: config.jobTimeout,
+      hint: existsSync(config.stataExe)
+        ? 'Background jobs will spawn this executable (batch, /e /q).'
+        : 'Set --stata-exe to a real StataMP-64.exe path; background jobs cannot start.',
+    },
     tools: null,
     hint: null,
   };

@@ -100,13 +100,18 @@ point: the agent layer must not be the only way to reproduce the paper.
 |---|---|
 | `stata_status` | Is Stata reachable, which installation, is a command running, what policy is active. |
 | `stata_run` | Run a block of commands; returns `success`, `returnCode`, transcript, graphs, policy warnings. |
-| `stata_run_do` | Run an existing `.do` file as a file (`do "..."`); `cwd` defaults to its folder. |
+| `stata_run_do` | Run an existing `.do` file as a file (`do "..."`); `cwd` defaults to its folder. Add `background:true` to get a job id instead of waiting. |
 | `stata_results` | `r()`, `e()`, `s()` macros as JSON. |
 | `stata_profile_data` | Dataset header plus per-variable type, format, label and missing count. |
 | `stata_model` | One estimation command in, a coefficient table and fit statistics out. |
 | `stata_graphs` | The PNG a run exported, attached as an image the model can actually see. |
 | `stata_break` | Interrupt a runaway command, then confirm `busy: false`. |
 | `stata_history` | The run ledger. |
+| `stata_job_submit` | Run a `.do` file in its own Stata process; returns immediately. |
+| `stata_job_status` | Job state, elapsed time, return code, first Stata error, log tail. |
+| `stata_job_log` | The log the job is writing right now. |
+| `stata_job_kill` | Stop a job and keep the log so far. |
+| `stata_job_list` | Jobs recorded under a working directory, newest first. |
 
 ## A session
 
@@ -129,6 +134,42 @@ point: the agent layer must not be the only way to reproduce the paper.
 > stata_graphs
   [image]
 ```
+
+## Long analyses
+
+The local service embeds the Stata engine inside its own process, so **one command runs at a time**:
+while a command is executing, every other call is answered with
+`409 Stata is busy executing another command`, and a call that outlives the service's own limit
+comes back without a return code at all. A twenty-minute imputation therefore cannot be driven
+through `stata_run`, however the timeout is set.
+
+`stata_job_submit` sidesteps that by not using the HTTP session: it starts
+`StataMP-64.exe /e /q do <file>` as a separate OS process, copies the do-file to an ASCII name
+first, and returns a job id. The interactive session stays free, there is no per-call ceiling
+(default 30 minutes, `--job-timeout`), and the transcript lands in a log file you can read while
+the job runs.
+
+```text
+> stata_job_submit { file: "analysis/40-impute.do", label: "ice imputation" }
+  j-m3x9k1-4f2a · running · pid 9184 · log analysis/__job-j-m3x9k1-4f2a.log
+
+> stata_job_status { jobId: "j-m3x9k1-4f2a" }
+  running · 420s elapsed
+
+> stata_job_log { jobId: "j-m3x9k1-4f2a", tail: 4000 }
+  Imputing [Perfect prediction detected: using augmlogit to impute moccu; ...
+```
+
+A job's state comes from its log, not from the exit code: batch Stata exits `0` even when the
+do-file aborts, so `stata_job_status` reports `failed` plus the first `r(NNN);`, the offending
+command, and its message. Records live in `<cwd>/.stata-copilot/jobs/`, so `stata_job_list` still
+finds a job after the server restarts.
+
+One Windows detail is handled for you: launching a second Stata makes the embedded engine reset the
+next connection it accepts (one `ECONNRESET`, then normal). `stata_job_submit` waits for the service
+to answer again before returning, so the calls you make right after a submit do not race that
+hiccup. `node examples/jobs.mjs` shows the whole flow — submit, an interactive call that still gets
+through in ~60 ms, live progress, the verdict, a kill, and the listing.
 
 ## Safety model
 
@@ -176,6 +217,8 @@ analysis rather than a one-off command.
 | `--max-output` | `STATA_COPILOT_MAX_OUTPUT` | `20000` chars of transcript |
 | `--no-ledger` | `STATA_COPILOT_NO_LEDGER` | ledger on |
 | `--log-level` | `STATA_COPILOT_LOG` | `info` (stderr only) |
+| `--stata-exe` | `STATA_COPILOT_STATA_EXE` | `D:\StataMP-64.exe` (used by background jobs) |
+| `--job-timeout` | `STATA_COPILOT_JOB_TIMEOUT` | `1800` s per background job |
 
 Flags also accept `--flag=value`. Unknown flags are refused rather than ignored, and every option
 in this table is generated into `--help` from the same declaration (`src/config.mjs`).
@@ -198,13 +241,15 @@ src/server.mjs          JSON-RPC over stdio; the protocol only, no Stata knowled
 src/tools/*.mjs         one file per tool; {name, title, description, inputSchema, handler}
 src/tools/index.mjs     registry: definition checks, argument validation, dispatch
 src/session.mjs         gate → execute → truncate → ledger; the run contract lives here once
+src/jobs.mjs            background jobs: spawn Stata in batch mode, poll, kill, finalise from the log
 src/policy.mjs          safety rules as data (RULES/WARNINGS), modes, cwd allow-list
 src/engines/http.mjs    HTTP adapter for the local service; src/engines/index.mjs registers drivers
-src/parsers/*.mjs       transcripts → numbers (macros, model, profile, distributions)
+src/parsers/*.mjs       transcripts → numbers (macros, model, profile, distributions, errors)
 src/lib/*.mjs           text/image content helpers, schema validation
 src/config.mjs          flags + env + --help, all from one table
 src/errors.mjs          frozen error codes and the MCP error result shape
 examples/paper/         numbered chapters (import → clean → describe → model → figures) + driver
+examples/jobs.mjs       the client view of a background job: submit, poll, log, kill, list
 ```
 
 Each layer has one job and one reason to change. Adding a tool touches two files; adding an engine
@@ -215,8 +260,9 @@ touches three; neither requires editing the protocol. See `docs/EXTENDING.md` fo
 ```bash
 npm test                  # contracts (36) + offline (35) — no Stata needed
 npm run test:contracts    # structural checks only: module graph, tool definitions, config
-npm run test:stata        # live Stata session, 28 assertions
+npm run test:stata        # live Stata session, 40 assertions
 npm run demo:paper        # the chaptered study, end to end, on the live session
+npm run demo:jobs         # background jobs: submit, watch, kill, list
 npm run check             # syntax + contracts, what pre-commit runs
 ```
 
@@ -225,7 +271,8 @@ config flag must appear in `--help`, the registry must still reject bad argument
 policy rules and JSON-RPC framing must all pass against recorded transcripts and a stub engine.
 `npm run test:stata` is the contract that matters: protocol handshake, tool inventory, real
 regression coefficients matched against Stata's own output, policy refusal, image attachment,
-ledger.
+ledger, and a background job that is submitted, polled, classified as failed from its log, and
+killed.
 
 
 ## Roadmap
@@ -258,6 +305,7 @@ session. This project is the agent-facing layer: structure, safety, ledger, and 
 - 出图后 `stata_graphs` 取回 PNG；代理模型真的「看」得到图。
 - 每次运行都写进 `<cwd>/.stata-copilot/runs.jsonl`，`stata_history` 可回读。
 - 默认 `guarded` 模式会拒绝 `!`、`shell`、`erase`；只读审查用 `--mode readonly`。
+- **跑得久（插补、bootstrap、上千次循环）不要硬塞进 `stata_run`**：服务是单线程，忙时会回 409，单次还有上限。用 `stata_job_submit` 起独立进程，`stata_job_status` 轮询、`stata_job_log` 看进度、`stata_job_kill` 随时停。
 
 ## License
 

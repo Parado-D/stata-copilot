@@ -1,8 +1,9 @@
 # Extending stata-copilot
 
-Three seams are designed to be extended without touching the protocol: **tools**, **engines**, and
-**policy rules**. Each recipe below is the whole change, in the order you would actually do it.
-`npm run test:contracts` checks that you did not break a seam's invariant.
+Four seams are designed to be extended without touching the protocol: **tools**, **engines**,
+**policy rules**, and **background-job handling**. Each recipe below is the whole change, in the
+order you would actually do it. `npm run test:contracts` checks that you did not break a seam's
+invariant.
 
 ---
 
@@ -42,6 +43,10 @@ What the handler gets and must return:
 
 - `ctx.session` — the shared `Session`: `run()`, `gate()`, `resolveMode()`, the ledger and last graphs.
   Every run goes through `run()` so policy and the reproducibility trail apply automatically.
+- `ctx.jobs` — the `JobStore` (`submit`, `status`, `log`, `kill`, `list`). Use it instead of
+  `ctx.session.run` when the command may outlive a single call: a job is a separate Stata process,
+  so it is not blocked by the service's `409 busy` behaviour. Gate the do-file body with
+  `ctx.session.gate(body, { cwd })` first — a job must not be a way around the policy.
 - `ctx.engine` — the raw adapter, if you need a call the session does not wrap (rare).
 - `ctx.config` / `ctx.log` — resolved configuration and the stderr logger.
 - Return `{ content: [ {type:'text', text: JSON.stringify(payload)} ] }` or, for images,
@@ -169,3 +174,29 @@ not a change to any tool.
 
 If you add a parser, export it from the barrel; tools import from the barrel, never from a single
 file, so a later swap stays a one-line change.
+
+---
+
+## 5. Changing the background-job layer
+
+`src/jobs.mjs` is the only place that spawns Stata. If you need a different launch (a different
+edition, a Linux `stata-mp`, an SSH box), change `JobStore.submit` and leave every tool alone: the
+tools only see `submit / status / log / kill / list` and the record shape.
+
+Invariants the live smoke test (`npm run test:stata`) relies on:
+
+- argv is `['/e', '/q', 'do', <ascii name>]`. One token each: a single `do "x.do"` argument is
+  swallowed by Stata, which then exits in ~0.6 s having written no log.
+- the do-file is copied to `__job-<id>.do` first. A non-ASCII name on the command line collapses to
+  `do` and yields `r(199)`.
+- a job's state comes from the log's first `r(NNN);` (`src/parsers/errors.mjs`), **never** from the
+  exit code: batch Stata exits 0 even when the do-file aborts.
+- a killed job is recorded as `killed`, not `failed`; the log is kept so the tail can still be read.
+- `stata_job_submit.file` goes through `ctx.session.gate(fileBody)` — a job is not a policy bypass.
+- after the spawn, `submit` probes the service (constructor `probe`, wired to `engine.status()`)
+  until it answers again. Launching a second Stata resets one connection on Windows; absorbing it
+  here keeps the caller's next call from failing. The wait is bounded (~2 s) and best effort: a job
+  does not need the HTTP service, so an offline service must not fail a submit.
+
+Timeout enforcement is a per-job `setTimeout` created at submit time, `unref`'d so it cannot keep
+the process alive. Raising `--job-timeout` therefore changes only jobs started after it.

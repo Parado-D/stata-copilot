@@ -71,19 +71,22 @@
                             │ MCP over stdio (JSON-RPC 2.0)
 ┌───────────────────────────▼──────────────────────────────────┐
 │ stata-copilot（本项目，零依赖 Node ≥18）                       │
-│  server.mjs   协议帧、tools/list、tools/call                   │
-│  tools.mjs    9 个工具：结构提取、护栏、台账                    │
-│  policy.mjs   命令词级策略 + cwd 白名单                         │
-│  parse.mjs    转录 → 结构（r()/e()、系数行、变量画像）           │
-│  engine.mjs   引擎适配器（GET 重试、POST 不重试）               │
+│  server.mjs          协议帧、tools/list、tools/call            │
+│  tools/*.mjs         14 个工具，一文件一工具：结构提取、护栏、台账 │
+│  session.mjs         gate → execute → truncate → ledger        │
+│  jobs.mjs            后台作业：独立 Stata 批处理进程，轮询/杀灭   │
+│  policy.mjs          命令词级策略 + cwd 白名单                   │
+│  parsers/*.mjs       转录 → 结构（r()/e()、系数行、变量画像、错误码）│
+│  engines/http.mjs    引擎适配器（GET 重试、POST 不重试）          │
 └───────────────────────────┬──────────────────────────────────┘
-                            │ HTTP 127.0.0.1:19522
-┌───────────────────────────▼──────────────────────────────────┐
-│ stata-ai-skill 服务（原生进程管理）                            │
-│  /status  /execute  /break  /shutdown  + 图捕获（SVG→PNG）     │
-└───────────────────────────┬──────────────────────────────────┘
-                            │
-                     Stata 18 MP（真实会话）
+                            │ HTTP 127.0.0.1:19522        ┌──────────────────────┐
+┌───────────────────────────▼──────────────────────────────┐ │ D:\StataMP-64.exe    │
+│ stata-ai-skill 服务（原生进程管理，引擎以 mp-64.dll 嵌在 │ │ /e /q do x.do        │
+│ 自身进程内，单线程）                                      │ │ （后台作业，无并发上限）│
+│  /status  /execute  /break  /shutdown  + 图捕获（SVG→PNG） │ └──────────┬───────────┘
+└───────────────────────────┬──────────────────────────────┘            │
+                            │                                          │
+                     Stata 18 MP（交互会话）                    Stata 18 MP（批处理）
 ```
 
 ### 关键实现选择
@@ -99,23 +102,43 @@
 - **图**：服务把 `graph export x.png` 拦下、先出 SVG 再转 PNG。工具把 PNG 读成 base64
   作为 MCP image 内容块返回，代理真的"看见"图；只有 SVG 时返回路径并说明原因（MCP image
   不支持 SVG）。
+- **长任务为什么不走 HTTP**：桌面取证证实引擎以 `mp-64.dll` 嵌在 `stata-ai-skill.exe`
+  进程内（pid 11628，模块 64.9 MB），因此服务是**单线程不排队**——一条命令在跑时，第二个
+  `/execute` 0.1 秒内就被 `409 Stata is busy executing another command` 拒绝；单次调用还有
+  上限（`timeoutMaxSeconds: 600`），超时的任务继续跑但没有返回码。三条路里：① 改服务加异步
+  作业接口——接口清单里没有，且是外部依赖，不做；② 客户端排队——解决不了"跑不完"本身；
+  ③ **另起进程**——`StataMP-64.exe /e /q do <file>` 是独立 OS 进程，无并发上限、无调用上限、
+  日志落盘，服务会话还能同时做交互。选 ③，即 `src/jobs.mjs`。
 
-### 工具面契约（v0.1）
+  这条路线有四个必须踩对的细节，全部有测试守：argv 必须拆成 `['/e','/q','do',name]`（整体
+  `do "x.do"` 会被 Stata 吞掉：0.6 秒退出、不写日志）；`/e` 不能省（否则开 GUI 挂住）；
+  do 文件名必须是 ASCII（中文名到命令行只剩 `do` → `r(199)`），所以先复制成
+  `__job-<id>.do`；批处理**即使 do 报错也 exit 0**，因此作业状态由日志里的首个 `r(NNN);`
+  决定（`src/parsers/errors.mjs`），而不是退出码。
+
+### 工具面契约（v0.2）
 
 | 工具 | 输入 | 输出关键字段 |
 |---|---|---|
 | `stata_status` | `format?` | `reachable, sessionActive, busy, stata{path,version,edition}, licenseFound, policy` |
 | `stata_run` | `code, cwd?, timeout?, mode?` | `success, returnCode, output, outputTruncated, error, graphs[], policy{mode,warnings}` |
-| `stata_run_do` | `file, cwd?, timeout?, mode?` | 同上 + `file` |
+| `stata_run_do` | `file, cwd?, timeout?, mode?, background?, label?` | 同上 + `file`；`background` 时为 job 记录 |
 | `stata_results` | `scope, cwd?, timeout?` | `macros{r,e,s}, matrices[]` |
 | `stata_profile_data` | `dataset?, cwd?, timeout?` | `dataset{source,observations,variables}, variables[{name,type,format,label,missing}]` |
-| `stata_model` | `command, cwd?, timeout?, quiet?` | `estimates[{equation,name,b,se,t,p}], fit{n,k,df_r,r2,r2_a,F,ll,aic,bic,cmdline}` |
+| `stata_model` | `command, cwd?, timeout?, quiet?` | `estimates[{equation,name,b,se,t,z,p}], fit{n,k,df_r,r2,r2_a,F,ll,aic,bic,cmdline}` |
 | `stata_graphs` | `files?, max?` | image 内容块 + `files[]` |
 | `stata_break` | — | `interrupted, status{busy}` |
 | `stata_history` | `limit?` | `entries[{at,tool,ok,returnCode,ms,cwd,code}]` |
+| `stata_job_submit` | `file, cwd?, label?, timeout?, mode?` | `jobId, state, pid, log, timeoutSeconds` |
+| `stata_job_status` | `jobId, cwd?` | `state, durationMs, returnCode, failure{code,command,message}, outputTail` |
+| `stata_job_log` | `jobId, cwd?, tail?` | `text, exists, log` |
+| `stata_job_kill` | `jobId, cwd?` | 同 status，`state: "killed"` |
+| `stata_job_list` | `cwd?, limit?` | `jobs[]`（记录在 `<cwd>/.stata-copilot/jobs/*.json`） |
 
-**为什么只有 9 个**：工具越多，模型选错的概率越高。这 9 个对应分析循环里的 9 个动作
-（看状态 → 摸数据 → 估计 → 取结果 → 看图 → 中断 → 查痕迹），没有一个是"可能有用"的。
+**为什么是 14 个而不是 9 个**：前 9 个对应分析循环里的 9 个动作（看状态 → 摸数据 → 估计 →
+取结果 → 看图 → 中断 → 查痕迹）；新增 5 个全部服务于"长任务"这一种真实场景——提交、查状态、
+看日志、杀灭、列举，少一个就得让代理猜（比如只给 submit 不给 log，代理只能靠 status 的尾巴
+判断进度）。工具面向"动作"，不面向"功能"：这是数量上限的唯一依据。
 
 ---
 
@@ -165,7 +188,9 @@
 
 ## 6. 下一步（按价值排序）
 
-1. `spawn` 引擎适配器：不依赖外部服务，一条命令拉起 Stata。
+1. `spawn` 引擎适配器：不依赖外部服务，一条命令拉起 Stata（与后台作业共用批处理通道）。
 2. `stata_table`：多模型 → `esttab` → CSV/Markdown，直接进论文。
 3. 诊断规则：面板未 `xtset`、聚类未 `vce(cluster)`、模拟无 `set seed`——在 `stata_run` 返回里作为 `warnings`。
 4. 与 `markstat` 打通：分析产物直接进可编译的报告（叙事 + 内联数值）。
+5. 作业层补两件：`stata_job_list` 的跨目录台账（现在按 cwd 存）、以及作业结束时的产物指纹
+   （哪些文件在作业期间被写出），让"跑完了"能自动对上"写出了什么"。

@@ -17,6 +17,7 @@ import { silentLogger } from '../log.mjs';
 import { EngineError } from '../errors.mjs';
 import { assertSchema, validateArgs } from '../lib/schema.mjs';
 import { Session } from '../session.mjs';
+import { JobStore } from '../jobs.mjs';
 
 import status from './status.mjs';
 import run from './run.mjs';
@@ -27,6 +28,11 @@ import model from './model.mjs';
 import graphs from './graphs.mjs';
 import breakTool from './break.mjs';
 import history from './history.mjs';
+import jobSubmit from './job-submit.mjs';
+import jobStatus from './job-status.mjs';
+import jobLog from './job-log.mjs';
+import jobKill from './job-kill.mjs';
+import jobList from './job-list.mjs';
 
 export const TOOL_MODULES = [
   status,
@@ -38,6 +44,11 @@ export const TOOL_MODULES = [
   graphs,
   breakTool,
   history,
+  jobSubmit,
+  jobStatus,
+  jobLog,
+  jobKill,
+  jobList,
 ];
 
 const NAME_PATTERN = /^[a-z][a-z0-9_]{2,40}$/;
@@ -107,12 +118,21 @@ export function createRegistry(context, modules = TOOL_MODULES) {
 /** Build the registry bound to one engine + policy configuration. */
 export function createTools(options = {}) {
   const session = options.session ?? new Session(options);
+  const jobs =
+    options.jobs ??
+    new JobStore({
+      stataExe: options.stataExe,
+      defaultTimeout: options.jobTimeout,
+      log: options.log ?? null,
+      probe: () => session.engine.status(),
+    });
   const context = {
     engine: session.engine,
     session,
+    jobs,
     config: options,
     log: options.log ?? silentLogger,
   };
   const registry = createRegistry(context, options.modules ?? TOOL_MODULES);
-  return { ...registry, session };
+  return { ...registry, session, jobs };
 }

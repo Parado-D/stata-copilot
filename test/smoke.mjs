@@ -9,7 +9,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -130,7 +130,7 @@ try {
   console.log('tools/list');
   const list = await client.request('tools/list', {});
   const names = (list.tools ?? []).map((t) => t.name).sort();
-  check('nine tools exposed', names.length === 9, names);
+  check('every tool exposed (14)', names.length === 14, names);
   check('every tool has an inputSchema', (list.tools ?? []).every((t) => t.inputSchema?.type === 'object'));
 
   console.log('stata_status');
@@ -188,6 +188,59 @@ try {
   console.log('ledger');
   const history = await client.call('stata_history', { limit: 50 });
   check('ledger recorded the runs', (history.payload?.entries ?? []).length >= 5, history.payload?.total);
+
+  console.log('background jobs');
+  const quickDo = path.join(workdir, 'quick.do');
+  await writeFile(quickDo, 'display \"job-marker\"\nsysuse auto, clear\ncount\n', 'utf8');
+  const submitted = await client.call('stata_job_submit', { file: quickDo, cwd: workdir, label: 'quick' });
+  check('job submit returns an id', /^j-/.test(submitted.payload?.jobId ?? ''), submitted.payload);
+  check('job submit reports running', submitted.payload?.state === 'running', submitted.payload?.state);
+
+  let jobState = null;
+  for (let i = 0; i < 60; i++) {
+    const st = await client.call('stata_job_status', { jobId: submitted.payload.jobId, cwd: workdir });
+    jobState = st.payload;
+    if (jobState.state !== 'running') break;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  check('job finishes ok', jobState?.state === 'ok', jobState);
+  check('job reports a duration', typeof jobState?.durationMs === 'number' && jobState.durationMs > 0, jobState?.durationMs);
+  const jobLog = await client.call('stata_job_log', { jobId: submitted.payload.jobId, cwd: workdir });
+  check('job log has the marker', /job-marker/.test(jobLog.payload?.text ?? ''), jobLog.payload?.text?.slice(-200));
+
+  const failingDo = path.join(workdir, 'failing.do');
+  await writeFile(failingDo, 'display \"before\"\nregress no_such_var price\n', 'utf8');
+  const failing = await client.call('stata_job_submit', { file: failingDo, cwd: workdir, label: 'failing' });
+  let failedState = null;
+  for (let i = 0; i < 60; i++) {
+    const st = await client.call('stata_job_status', { jobId: failing.payload.jobId, cwd: workdir });
+    failedState = st.payload;
+    if (failedState.state !== 'running') break;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  check('failing job reports failed', failedState?.state === 'failed', failedState?.state);
+  check('failing job carries the Stata error code', failedState?.failure?.code === 'r(111);', failedState?.failure);
+
+  const longDo = path.join(workdir, 'long.do');
+  await writeFile(longDo, 'display \"starting\"\nsleep 60000\ndisplay \"never\"\n', 'utf8');
+  const longJob = await client.call('stata_job_submit', { file: longDo, cwd: workdir, label: 'long', timeout: 120 });
+  check('long job starts', longJob.payload?.state === 'running', longJob.payload);
+  const killed = await client.call('stata_job_kill', { jobId: longJob.payload.jobId, cwd: workdir });
+  check('job kill terminates it', killed.payload?.state === 'killed', killed.payload?.state);
+
+  const listing = await client.call('stata_job_list', { cwd: workdir });
+  check('job list includes every job', (listing.payload?.jobs ?? []).length >= 3, listing.payload?.count);
+
+  const background = await client.call('stata_run_do', { file: quickDo, cwd: workdir, background: true });
+  check('run_do background returns a job id', /^j-/.test(background.payload?.jobId ?? ''), background.payload);
+  let bgJob = null;
+  for (let i = 0; i < 60; i++) {
+    const st = await client.call('stata_job_status', { jobId: background.payload.jobId, cwd: workdir });
+    bgJob = st.payload;
+    if (bgJob.state !== 'running') break;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  check('run_do background job finishes ok', bgJob?.state === 'ok', bgJob?.state);
 } catch (err) {
   failures.push(`exception: ${err.message}`);
   console.log(`  FAIL exception — ${err.message}`);

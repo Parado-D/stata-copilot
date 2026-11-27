@@ -1,6 +1,6 @@
 {
   "name": "stata-copilot",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "MCP server + skills that turn an AI coding agent into a disciplined Stata analyst: structured results, command safety rails, and a reproducible run ledger.",
   "keywords": [
     "stata",
@@ -50,6 +50,7 @@
     "test:stata": "node test/smoke.mjs",
     "demo": "node examples/real-analysis/run.mjs",
     "demo:paper": "node examples/paper/run.mjs",
+    "demo:jobs": "node examples/jobs.mjs",
     "check": "node --check bin/stata-copilot.mjs && node test/contracts.mjs"
   },
   "repository": {

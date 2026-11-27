@@ -6,6 +6,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), version
 
 ## [Unreleased]
 
+### Added — background jobs, so long analyses are not capped by the service
+
+- Five tools: `stata_job_submit`, `stata_job_status`, `stata_job_log`, `stata_job_kill`,
+  `stata_job_list` (`src/jobs.mjs`). A job runs `StataMP-64.exe /e /q do <file>` as its own OS
+  process, so it is not subject to the service's single-threaded `409 busy` behaviour or its
+  per-call ceiling; the interactive session stays free and the transcript is readable while the
+  job runs.
+- `stata_run_do {background: true}` — the same thing without switching tools.
+- `--stata-exe` (default `D:\StataMP-64.exe`) and `--job-timeout` (default 1800 s, lazy
+  enforcement: the timer fires, the job is killed, the log is kept).
+- `src/parsers/errors.mjs` — the first `r(NNN);` in a transcript or batch log, with the offending
+  command reconstructed across `> ` continuation lines. Batch Stata exits 0 on error, so a job's
+  state is decided by this parser, not by the exit code.
+- Job records persist as JSON under `<cwd>/.stata-copilot/jobs/`, so `stata_job_list` still reports
+  a job after the server restarts.
+- Live smoke test grew to 40 assertions: submit, poll, log marker, failure classification
+  (`r(111)`), kill, list, background `run_do`.
+
+### Fixed — the first call after a submit no longer loses a race
+
+- Starting a second Stata makes the service's embedded engine reset the next connection it accepts
+  (one `ECONNRESET`, then normal). `stata_job_submit` now waits — bounded, best effort — for
+  `GET /status` to answer again before it returns, so the caller's first `stata_run` after a submit
+  is not the one that eats the hiccup. Symptom it removes: a fresh `OFFLINE … fetch failed` right
+  after a successful job submit.
+- `stata_job_status` reports elapsed time and the log tail while the job is still running, not only
+  after it finishes; `npm run demo:jobs` exercises submit → concurrent interactive call → live
+  progress → verdict → kill → list.
+
 ### Added — a chaptered paper example
 
 - `examples/paper/` — a study split into numbered do-files (`00-plan.md`, `10-import`, `20-clean`,

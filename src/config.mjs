@@ -10,6 +10,7 @@
 import path from 'node:path';
 
 import { ENGINE_DRIVERS, DEFAULT_ENDPOINT } from './engines/index.mjs';
+import { DEFAULT_STATA_EXE } from './jobs.mjs';
 import { LOG_LEVELS } from './log.mjs';
 import { MODES } from './policy.mjs';
 
@@ -64,6 +65,16 @@ export const CONFIG_OPTIONS = [
     help: 'Do not append .stata-copilot/runs.jsonl under the run cwd.',
   },
   {
+    key: 'stataExe', flag: '--stata-exe', placeholder: '<path>', env: 'STATA_COPILOT_STATA_EXE',
+    default: DEFAULT_STATA_EXE, type: 'string',
+    help: 'Stata executable used for background jobs (a separate batch process).',
+  },
+  {
+    key: 'jobTimeout', flag: '--job-timeout', placeholder: '<seconds>', env: 'STATA_COPILOT_JOB_TIMEOUT',
+    default: 1800, type: 'number',
+    help: 'Wall-clock ceiling for a background job (10-86400).',
+  },
+  {
     key: 'logLevel', flag: '--log-level', placeholder: '<level>', env: 'STATA_COPILOT_LOG',
     default: 'info', type: 'string', choices: LOG_LEVELS,
     help: `stderr log level (${LOG_LEVELS.join('|')}).`,
@@ -88,6 +99,9 @@ function coerce(option, raw) {
     }
     if (option.key === 'maxOutputChars' && value < 1000) {
       throw new ConfigError(`${option.flag} must be at least 1000 characters`);
+    }
+    if (option.key === 'jobTimeout' && (value < 10 || value > 86_400)) {
+      throw new ConfigError(`${option.flag} must be between 10 and 86400 seconds`);
     }
     return value;
   }

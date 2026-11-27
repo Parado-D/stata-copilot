@@ -126,7 +126,7 @@ const unknownProto = await server.handle({ jsonrpc: '2.0', id: 2, method: 'initi
 check('unknown protocol falls back to latest', unknownProto.result.protocolVersion === '2025-06-18');
 
 const list = await server.handle({ jsonrpc: '2.0', id: 3, method: 'tools/list', params: {} });
-check('tools/list returns 9 tools', list.result.tools.length === 9);
+check('tools/list returns every tool', list.result.tools.length === 14, list.result.tools.length);
 check('every tool has inputSchema', list.result.tools.every((t) => t.inputSchema.type === 'object'));
 
 const notif = await server.handle({ jsonrpc: '2.0', method: 'notifications/initialized' });

@@ -59,7 +59,7 @@ const { EngineError, ERROR_CODES, errorResult } = await import(pathToFileURL(pat
 const pkg = JSON.parse(await (await import('node:fs/promises')).readFile(path.join(ROOT, 'package.json'), 'utf8'));
 
 console.log('tool contracts');
-check('nine tools registered', TOOL_MODULES.length === 9, TOOL_MODULES.map((t) => t.name));
+check('every tool module is registered (14)', TOOL_MODULES.length === 14, TOOL_MODULES.map((t) => t.name));
 const names = TOOL_MODULES.map((t) => t.name);
 check('tool names unique', new Set(names).size === names.length);
 check('names are lower_snake_case', names.every((n) => /^[a-z][a-z0-9_]{2,40}$/.test(n)), names);
@@ -77,7 +77,7 @@ check('a malformed definition is rejected at startup', rejected?.code === 'TOOL_
 
 const stub = { endpoint: 'http://stub', async status() { return {}; }, async execute() { return { success: true, returnCode: 0, output: '', error: '', graphs: [] }; }, async break() {} };
 const registry = createTools({ engine: stub, mode: 'guarded', persistLedger: false });
-check('registry exposes the same nine definitions', registry.definitions.length === 9);
+check('registry exposes every tool definition', registry.definitions.length === TOOL_MODULES.length);
 check('unknown tool raises UNKNOWN_TOOL', await registry.call('nope').then(() => false, (e) => e.code === 'UNKNOWN_TOOL'));
 check('bad arguments raise INVALID_ARGS', await registry.call('stata_run', { code: 42 }).then(() => false, (e) => e.code === 'INVALID_ARGS'));
 check('missing required argument is reported', await registry.call('stata_run', {}).then(() => false, (e) => e.code === 'INVALID_ARGS' && e.details.problems.length > 0));
